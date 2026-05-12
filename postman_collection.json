@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "7c9c6f6a-2ee1-4a8a-bd7f-sli-backend",
     "name": "SLI Backend API",
-    "description": "FastAPI backend API collection for SLI auth, users, and admin routes.",
+    "description": "FastAPI backend API collection for SLI: health, auth, admin users, agent proposals (multipart upload + list/detail/file), and underwriter proposal queue + detail/file.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -19,6 +19,16 @@
     {
       "key": "refresh_token",
       "value": "",
+      "type": "string"
+    },
+    {
+      "key": "proposal_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "document_id",
+      "value": "1",
       "type": "string"
     }
   ],
@@ -104,6 +114,44 @@
           "response": []
         },
         {
+          "name": "Login Agent",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const response = pm.response.json();",
+                  "if (response.success && response.data) {",
+                  "  pm.collectionVariables.set('access_token', response.data.access_token);",
+                  "  pm.collectionVariables.set('refresh_token', response.data.refresh_token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"agent@example.com\",\n  \"password\": \"password123\",\n  \"remember_me\": false\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Requires an agent user (e.g. register with role_slug agent first). Saves tokens to collection variables."
+          },
+          "response": []
+        },
+        {
           "name": "Login User",
           "event": [
             {
@@ -137,6 +185,44 @@
               "host": ["{{base_url}}"],
               "path": ["api", "auth", "login"]
             }
+          },
+          "response": []
+        },
+        {
+          "name": "Login Underwriter",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const response = pm.response.json();",
+                  "if (response.success && response.data) {",
+                  "  pm.collectionVariables.set('access_token', response.data.access_token);",
+                  "  pm.collectionVariables.set('refresh_token', response.data.refresh_token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"underwriter@example.com\",\n  \"password\": \"password123\",\n  \"remember_me\": false\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Use after an admin creates a user with role_slug underwriter (see Admin > Create User As Admin)."
           },
           "response": []
         },
@@ -268,6 +354,279 @@
               "path": ["api", "admin", "users"]
             },
             "description": "Only Admin role can create users. Change role_slug to agent, underwriter, admin, or any active role slug in DB."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Agent proposals",
+      "description": "Requires Bearer token for user with role **agent**. Use Authentication > Login Agent (or register as agent).",
+      "item": [
+        {
+          "name": "Create Proposal",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "  const r = pm.response.json();",
+                  "  if (r.success && r.data && r.data.proposal) {",
+                  "    pm.collectionVariables.set('proposal_id', String(r.data.proposal.id));",
+                  "    const docs = r.data.proposal.documents;",
+                  "    if (docs && docs.length) {",
+                  "      pm.collectionVariables.set('document_id', String(docs[0].id));",
+                  "    }",
+                  "  }",
+                  "} catch (e) {}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "document",
+                  "description": "Photo or scan of the proposal (required)",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "fa_number",
+                  "type": "text",
+                  "value": "FA-10001"
+                },
+                {
+                  "key": "policy_type",
+                  "type": "text",
+                  "value": "Term Life"
+                },
+                {
+                  "key": "submission_date",
+                  "description": "ISO date YYYY-MM-DD",
+                  "type": "text",
+                  "value": "2026-05-01"
+                },
+                {
+                  "key": "note",
+                  "type": "text",
+                  "value": "Optional note from agent"
+                },
+                {
+                  "key": "ocr_extracted_data",
+                  "description": "Optional JSON string (object or array) from mobile OCR",
+                  "type": "text",
+                  "value": "{\"policyNumber\":\"X1\",\"insured\":\"Jane Doe\"}"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/agent/proposals",
+              "host": ["{{base_url}}"],
+              "path": ["api", "agent", "proposals"]
+            },
+            "description": "Multipart form: attach **document** file in Postman. On 201 success, Tests script stores proposal_id and first document_id in collection variables."
+          },
+          "response": []
+        },
+        {
+          "name": "List My Proposals",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/agent/proposals?limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["api", "agent", "proposals"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "description": "1–100, default 50"
+                },
+                {
+                  "key": "cursor_created_at",
+                  "value": "",
+                  "description": "ISO datetime; must be sent with cursor_id for keyset pagination",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor_id",
+                  "value": "",
+                  "description": "Proposal id; must be sent with cursor_created_at",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Keyset pagination: send **cursor_created_at** and **cursor_id** together (from previous response next_cursor_* fields)."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Proposal By Id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/agent/proposals/{{proposal_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "agent", "proposals", "{{proposal_id}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Download Proposal Document File",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/agent/proposals/{{proposal_id}}/documents/{{document_id}}/file",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "agent",
+                "proposals",
+                "{{proposal_id}}",
+                "documents",
+                "{{document_id}}",
+                "file"
+              ]
+            },
+            "description": "Returns raw file bytes (FileResponse). Set proposal_id and document_id from list/get proposal or after Create Proposal."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Underwriter proposals",
+      "description": "Requires Bearer token for user with role **underwriter**. Create user via Admin or seed; use Authentication > Login Underwriter.",
+      "item": [
+        {
+          "name": "List Proposals Table",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/underwriter/proposals?limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["api", "underwriter", "proposals"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "description": "1–100"
+                },
+                {
+                  "key": "underwriter_status",
+                  "value": "pending",
+                  "description": "Filter by underwriter_status (e.g. pending)",
+                  "disabled": true
+                },
+                {
+                  "key": "final_status",
+                  "value": "open",
+                  "description": "Filter by final_status (e.g. open)",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "FA",
+                  "description": "Case-insensitive FA number contains",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor_created_at",
+                  "value": "",
+                  "description": "Must pair with cursor_id",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor_id",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Queue rows with creator brief and document_count. Defaults in DB: underwriter_status pending, final_status open."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Proposal Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/underwriter/proposals/{{proposal_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "underwriter", "proposals", "{{proposal_id}}"]
+            },
+            "description": "Full proposal for review including documents with OCR payloads."
+          },
+          "response": []
+        },
+        {
+          "name": "Download Proposal Document File",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/underwriter/proposals/{{proposal_id}}/documents/{{document_id}}/file",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "underwriter",
+                "proposals",
+                "{{proposal_id}}",
+                "documents",
+                "{{document_id}}",
+                "file"
+              ]
+            },
+            "description": "Same path shape as agent download; underwriter can access documents for any proposal in the queue."
           },
           "response": []
         }

@@ -11,7 +11,7 @@ FastAPI backend for SLI with PostgreSQL, SQLAlchemy, JWT authentication, role-ba
 ## Local Setup
 
 ```bash
-cd /home/aurnab/Work/SLI/sli-backend
+cd /sli-backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt

@@ -5,6 +5,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://postgres:password@localhost:5432/project_db"
+    DATABASE_POOL_SIZE: int = 20
+    DATABASE_MAX_OVERFLOW: int = 40
+    DATABASE_POOL_RECYCLE: int = 1800
+    UPLOAD_ROOT: str = "./uploads"
+    MAX_UPLOAD_BYTES: int = 26_214_400  # 25 MiB
     JWT_SECRET_KEY: str = "change_this_secret"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30

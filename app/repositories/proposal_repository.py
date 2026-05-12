@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, cast, func, or_, select, String
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.proposal import Proposal, ProposalDocument
@@ -61,15 +61,37 @@ class ProposalRepository:
         *,
         underwriter_status: str | None,
         final_status: str | None,
+        ocr_status: str | None,
         search: str | None,
+        policy_type: str | None,
+        submission_date_from: date | None,
+        submission_date_to: date | None,
     ):
         if underwriter_status:
             stmt = stmt.where(Proposal.underwriter_status == underwriter_status)
         if final_status:
             stmt = stmt.where(Proposal.final_status == final_status)
+        if ocr_status:
+            stmt = stmt.where(Proposal.ocr_status == ocr_status)
+        if policy_type:
+            pt = policy_type.strip()[:120].replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            if pt:
+                stmt = stmt.where(Proposal.policy_type.ilike(f"%{pt}%", escape="\\"))
+        if submission_date_from is not None:
+            stmt = stmt.where(Proposal.submission_date >= submission_date_from)
+        if submission_date_to is not None:
+            stmt = stmt.where(Proposal.submission_date <= submission_date_to)
         if search:
             s = search.strip()[:120].replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            stmt = stmt.where(Proposal.fa_number.ilike(f"%{s}%", escape="\\"))
+            like = f"%{s}%"
+            id_as_text = cast(Proposal.id, String)
+            stmt = stmt.where(
+                or_(
+                    Proposal.fa_number.ilike(like, escape="\\"),
+                    User.name.ilike(like, escape="\\"),
+                    id_as_text.ilike(like, escape="\\"),
+                )
+            )
         return stmt
 
     def count_for_underwriter_table(
@@ -77,14 +99,26 @@ class ProposalRepository:
         *,
         underwriter_status: str | None,
         final_status: str | None,
+        ocr_status: str | None,
         search: str | None,
+        policy_type: str | None = None,
+        submission_date_from: date | None = None,
+        submission_date_to: date | None = None,
     ) -> int:
-        stmt = select(func.count()).select_from(Proposal)
+        stmt = (
+            select(func.count())
+            .select_from(Proposal)
+            .join(User, Proposal.created_by_id == User.id)
+        )
         stmt = self._underwriter_table_filters(
             stmt,
             underwriter_status=underwriter_status,
             final_status=final_status,
+            ocr_status=ocr_status,
             search=search,
+            policy_type=policy_type,
+            submission_date_from=submission_date_from,
+            submission_date_to=submission_date_to,
         )
         return int(self._db.execute(stmt).scalar_one())
 
@@ -96,7 +130,11 @@ class ProposalRepository:
         cursor_id: int | None,
         underwriter_status: str | None,
         final_status: str | None,
+        ocr_status: str | None,
         search: str | None,
+        policy_type: str | None = None,
+        submission_date_from: date | None = None,
+        submission_date_to: date | None = None,
     ) -> list[tuple[Proposal, str, str, int]]:
         doc_count_sq = (
             select(func.count(ProposalDocument.id))
@@ -114,7 +152,11 @@ class ProposalRepository:
             stmt,
             underwriter_status=underwriter_status,
             final_status=final_status,
+            ocr_status=ocr_status,
             search=search,
+            policy_type=policy_type,
+            submission_date_from=submission_date_from,
+            submission_date_to=submission_date_to,
         )
         if cursor_created_at is not None and cursor_id is not None:
             stmt = stmt.where(

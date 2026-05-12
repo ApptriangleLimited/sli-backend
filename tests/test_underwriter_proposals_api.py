@@ -96,6 +96,11 @@ def test_underwriter_get_detail_and_download_document(
     assert detail["id"] == pid
     assert detail["fa_number"] == "FA-DETAIL-1"
     assert detail["documents"][0]["ocr_extracted_data"] == {"insured": "Test"}
+    assert "ocr_by_document" in detail
+    assert len(detail["ocr_by_document"]) == 1
+    assert detail["ocr_by_document"][0]["document_id"] == did
+    assert detail["ocr_by_document"][0]["original_filename"] == "doc.png"
+    assert detail["ocr_by_document"][0]["ocr_extracted_data"] == {"insured": "Test"}
 
     dl = client.get(f"/api/underwriter/proposals/{pid}/documents/{did}/file", headers=wh)
     assert dl.status_code == 200

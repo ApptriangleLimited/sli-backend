@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
@@ -25,7 +25,15 @@ def list_proposals_table(
     cursor_id: int | None = Query(None, ge=1),
     underwriter_status: str | None = Query(None, max_length=32),
     final_status: str | None = Query(None, max_length=32),
-    search: str | None = Query(None, description="Case-insensitive FA number contains", max_length=120),
+    ocr_status: str | None = Query(None, max_length=32),
+    policy_type: str | None = Query(None, description="Case-insensitive policy type contains", max_length=120),
+    submission_date_from: date | None = Query(None),
+    submission_date_to: date | None = Query(None),
+    search: str | None = Query(
+        None,
+        description="Case-insensitive match on FA number, agent name, or proposal id text",
+        max_length=120,
+    ),
     db: Session = Depends(get_db),
     _uw: User = _UNDERWRITER_OR_ADMIN,
 ):
@@ -41,7 +49,11 @@ def list_proposals_table(
         cursor_id=cursor_id,
         underwriter_status=underwriter_status,
         final_status=final_status,
+        ocr_status=ocr_status,
         search=search,
+        policy_type=policy_type,
+        submission_date_from=submission_date_from,
+        submission_date_to=submission_date_to,
     )
 
     next_ca: datetime | None = None

@@ -1,6 +1,8 @@
 from datetime import date, datetime
+import json
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 
 class ProposalDocumentOut(BaseModel):
@@ -8,10 +10,31 @@ class ProposalDocumentOut(BaseModel):
     original_filename: str
     content_type: str
     size_bytes: int
-    ocr_extracted_data: dict | list | None
+    ocr_extracted_data: Any | None = Field(
+        None,
+        description="OCR payload as JSON (object or array). String values are parsed when possible.",
+    )
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("ocr_extracted_data", mode="before")
+    @classmethod
+    def coerce_ocr_to_json(cls, v: object) -> object:
+        if v is None:
+            return None
+        if isinstance(v, (dict, list)):
+            return v
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return None
+            try:
+                parsed = json.loads(s)
+            except json.JSONDecodeError:
+                return None
+            return parsed if isinstance(parsed, (dict, list)) else None
+        return v
 
 
 class ProposalOut(BaseModel):
@@ -85,3 +108,16 @@ class ProposalUnderwriterDetailOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     documents: list[ProposalDocumentOut] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def ocr_by_document(self) -> list[dict[str, Any]]:
+        """Per-file OCR as JSON-friendly rows for the review UI (mirrors documents[].ocr_extracted_data)."""
+        return [
+            {
+                "document_id": d.id,
+                "original_filename": d.original_filename,
+                "ocr_extracted_data": d.ocr_extracted_data,
+            }
+            for d in self.documents
+        ]

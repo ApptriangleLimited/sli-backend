@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
@@ -24,7 +24,11 @@ class UnderwriterProposalService:
         cursor_id: int | None,
         underwriter_status: str | None,
         final_status: str | None,
+        ocr_status: str | None,
         search: str | None,
+        policy_type: str | None,
+        submission_date_from: date | None,
+        submission_date_to: date | None,
     ) -> tuple[list[ProposalTableRowOut], int, bool]:
         rows = self._repo.list_for_underwriter_table(
             limit=limit + 1,
@@ -32,14 +36,22 @@ class UnderwriterProposalService:
             cursor_id=cursor_id,
             underwriter_status=underwriter_status,
             final_status=final_status,
+            ocr_status=ocr_status,
             search=search,
+            policy_type=policy_type,
+            submission_date_from=submission_date_from,
+            submission_date_to=submission_date_to,
         )
         has_more = len(rows) > limit
         page = rows[:limit]
         total = self._repo.count_for_underwriter_table(
             underwriter_status=underwriter_status,
             final_status=final_status,
+            ocr_status=ocr_status,
             search=search,
+            policy_type=policy_type,
+            submission_date_from=submission_date_from,
+            submission_date_to=submission_date_to,
         )
         items: list[ProposalTableRowOut] = []
         for proposal, creator_name, creator_email, doc_count in page:

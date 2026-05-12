@@ -46,14 +46,20 @@ def _parse_ocr_json(raw: str | None) -> dict | list | None:
 
 @router.post("/proposals", status_code=status.HTTP_201_CREATED)
 def create_proposal(
-    document: UploadFile = File(..., description="Photo or scan of the proposal document"),
+    document: list[UploadFile] = File(
+        ...,
+        description=(
+            "One or more proposal files. Repeat the multipart part named `document` for each file "
+            "(HTML: <input name='document' multiple>, or multiple form fields with the same name)."
+        ),
+    ),
     fa_number: str = Form(..., min_length=1, max_length=120),
     policy_type: str = Form(..., min_length=1, max_length=120),
     submission_date: str = Form(..., description="ISO date YYYY-MM-DD"),
     note: str | None = Form(None, max_length=8000),
     ocr_extracted_data: str | None = Form(
         None,
-        description="JSON string from mobile OCR (object or array)",
+        description="JSON string from mobile OCR (object or array); stored on the first uploaded file only.",
     ),
     db: Session = Depends(get_db),
     current_user: User = _AGENT,
@@ -61,13 +67,13 @@ def create_proposal(
     sub_date = _parse_submission_date(submission_date)
     ocr_payload = _parse_ocr_json(ocr_extracted_data)
     try:
-        proposal = ProposalService(db).create_with_document(
+        proposal = ProposalService(db).create_with_documents(
             creator_id=current_user.id,
             note=note,
             fa_number=fa_number,
             policy_type=policy_type,
             submission_date=sub_date,
-            document=document,
+            documents=document,
             ocr_extracted_data=ocr_payload,
         )
     except ValueError as exc:

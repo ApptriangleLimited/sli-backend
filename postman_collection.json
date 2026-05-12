@@ -398,7 +398,13 @@
               "formdata": [
                 {
                   "key": "document",
-                  "description": "Photo or scan of the proposal (required)",
+                  "description": "Proposal file(s). Add multiple rows with key **document** for multi-file upload (stored as separate proposal_documents).",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "document",
+                  "description": "Optional: additional file (same key **document**)",
                   "type": "file",
                   "src": []
                 },
@@ -436,7 +442,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "agent", "proposals"]
             },
-            "description": "Multipart form: attach **document** file in Postman. On 201 success, Tests script stores proposal_id and first document_id in collection variables."
+            "description": "Multipart form: one or more **document** file parts (repeat the key). Optional **ocr_extracted_data** JSON is stored on the first file only. On 201 success, Tests script stores proposal_id and first document_id in collection variables."
           },
           "response": []
         },

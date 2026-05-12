@@ -89,6 +89,31 @@ def test_create_list_get_download(client: TestClient, agent_token: str):
     assert dl.content[:8] == b"\x89PNG\r\n\x1a\n"
 
 
+def test_create_proposal_multiple_documents(client: TestClient, agent_token: str):
+    headers = _auth_headers(agent_token)
+    files = [
+        ("document", ("page1.png", io.BytesIO(_MINI_PNG), "image/png")),
+        ("document", ("page2.png", io.BytesIO(_MINI_PNG), "image/png")),
+    ]
+    form = {
+        "fa_number": "FA-MULTI-001",
+        "policy_type": "term_life",
+        "submission_date": "2026-05-12",
+        "ocr_extracted_data": '{"page":1}',
+    }
+    create = client.post("/api/agent/proposals", headers=headers, files=files, data=form)
+    assert create.status_code == 201, create.text
+    prop = create.json()["data"]["proposal"]
+    assert prop["fa_number"] == "FA-MULTI-001"
+    assert len(prop["documents"]) == 2
+    assert prop["documents"][0]["ocr_extracted_data"] == {"page": 1}
+    assert prop["documents"][1]["ocr_extracted_data"] is None
+    assert {prop["documents"][0]["original_filename"], prop["documents"][1]["original_filename"]} == {
+        "page1.png",
+        "page2.png",
+    }
+
+
 def test_create_ocr_pending_without_json(client: TestClient, agent_token: str):
     headers = _auth_headers(agent_token)
     files = {"document": ("x.png", io.BytesIO(_MINI_PNG), "image/png")}

@@ -1,14 +1,11 @@
 from datetime import date, datetime
 
-from fastapi import UploadFile
 from sqlalchemy.orm import Session
 
 from app.models.proposal import Proposal, ProposalDocument
 from app.repositories.proposal_repository import ProposalRepository
+from app.schemas.proposal_document_upload import ProposalDocumentUploadBundle, ProposalDocumentUploadItem
 from app.services.proposal_storage_service import ProposalStorageService
-
-# Max files per POST /api/agent/proposals (same multipart request).
-MAX_PROPOSAL_DOCUMENTS_PER_REQUEST = 20
 
 
 class ProposalService:
@@ -29,15 +26,12 @@ class ProposalService:
         fa_number: str,
         policy_type: str,
         submission_date: date,
-        documents: list[UploadFile],
+        document_bundle: ProposalDocumentUploadBundle,
         ocr_extracted_data: dict | list | None,
     ) -> Proposal:
-        if not documents:
+        items = document_bundle.items
+        if not items:
             raise ValueError("At least one document file is required")
-        if len(documents) > MAX_PROPOSAL_DOCUMENTS_PER_REQUEST:
-            raise ValueError(
-                f"At most {MAX_PROPOSAL_DOCUMENTS_PER_REQUEST} documents allowed per proposal submission",
-            )
 
         ocr_status = "pending"
         if ocr_extracted_data is not None:
@@ -57,16 +51,22 @@ class ProposalService:
 
         rel_paths: list[str] = []
         try:
-            for index, document in enumerate(documents):
-                rel_path, size = self._storage.persist_upload(document, proposal.id)
+            for index, item in enumerate(items):
+                rel_path, size = self._storage.persist_upload(item.file, proposal.id)
                 rel_paths.append(rel_path)
-                # Single optional JSON payload (existing API): attach to first file only.
                 per_doc_ocr = ocr_extracted_data if index == 0 else None
                 doc = ProposalDocument(
                     proposal_id=proposal.id,
+                    section_type=item.section_type,
+                    document_type=item.document_type,
+                    side=item.side,
+                    nominee_index=item.nominee_index,
+                    document_group_id=item.document_group_id,
                     storage_path=rel_path,
-                    original_filename=(document.filename or "upload")[:255],
-                    content_type=(document.content_type or "application/octet-stream").split(";")[0].strip()[:120],
+                    original_filename=(item.file.filename or "upload")[:255],
+                    content_type=(item.file.content_type or "application/octet-stream")
+                    .split(";")[0]
+                    .strip()[:120],
                     size_bytes=size,
                     ocr_extracted_data=per_doc_ocr,
                 )

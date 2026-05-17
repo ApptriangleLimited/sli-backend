@@ -52,6 +52,15 @@ class ProposalDocument(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     proposal_id: Mapped[int] = mapped_column(ForeignKey("proposals.id"), nullable=False)
+    section_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="application", index=True
+    )
+    document_type: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default="application_form", index=True
+    )
+    side: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    nominee_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    document_group_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     storage_path: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
     content_type: Mapped[str] = mapped_column(String(120), nullable=False)

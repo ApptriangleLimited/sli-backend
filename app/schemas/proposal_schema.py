@@ -7,6 +7,11 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validat
 
 class ProposalDocumentOut(BaseModel):
     id: int
+    section_type: str
+    document_type: str
+    side: str | None = None
+    nominee_index: int | None = None
+    document_group_id: str | None = None
     original_filename: str
     content_type: str
     size_bytes: int
@@ -116,6 +121,11 @@ class ProposalUnderwriterDetailOut(BaseModel):
         return [
             {
                 "document_id": d.id,
+                "section_type": d.section_type,
+                "document_type": d.document_type,
+                "side": d.side,
+                "nominee_index": d.nominee_index,
+                "document_group_id": d.document_group_id,
                 "original_filename": d.original_filename,
                 "ocr_extracted_data": d.ocr_extracted_data,
             }

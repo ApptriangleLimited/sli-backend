@@ -1,0 +1,661 @@
+================================================================================
+  SLI BACKEND — PROPOSAL CREATE API (COMPLETE REFERENCE)
+================================================================================
+  NOTE (2026): Document upload structure changed. Flat field "document" removed.
+  See: docs/PROPOSAL_CREATE_API_DOCUMENT_SECTIONS.txt for current multipart
+  sections (application / applicant / nominee / guardian).
+================================================================================
+  Endpoint : POST /api/agent/proposals
+  Purpose  : Agent uploads one or more proposal documents + metadata; creates
+             one Proposal row and one ProposalDocument row per file.
+  Auth     : Bearer JWT, role must be "agent" only (admin/underwriter → 403).
+  Body     : multipart/form-data (NOT JSON). Files + text fields mixed.
+  Success  : HTTP 201 Created
+================================================================================
+
+
+TABLE OF CONTENTS
+-----------------
+  1. Quick summary
+  2. Request format (how the body collects input)
+  3. Every form field (parameters)
+  4. Auth & permissions
+  5. Request flow (layer by layer)
+  6. Parsing & validation (route helpers)
+  7. Business logic (ProposalService)
+  8. File storage (ProposalStorageService)
+  9. Database storage (tables & columns)
+  10. Default status values on create
+  11. OCR data rules
+  12. Multi-file upload rules
+  13. Transaction & rollback (failure behavior)
+  14. Response shape (success)
+  15. Error responses
+  16. Environment / config
+  17. Code file map
+  18. curl example
+  19. Postman / HTML form notes
+  20. Tests (what they prove)
+  21. Related endpoints (not create, but same resource)
+
+
+================================================================================
+1. QUICK SUMMARY
+================================================================================
+
+An agent sends multipart/form-data to POST /api/agent/proposals with:
+  - At least one file part named "document" (can repeat key for multiple files)
+  - Required text fields: fa_number, policy_type, submission_date
+  - Optional: note, ocr_extracted_data (JSON string)
+
+The API:
+  1. Validates JWT and agent role
+  2. Parses date and optional OCR JSON in the route
+  3. Creates a Proposal in PostgreSQL (metadata + statuses)
+  4. Saves each file under UPLOAD_ROOT/proposals/YYYY/MM/DD/
+  5. Creates ProposalDocument rows linked to the proposal
+  6. Commits DB; on failure rolls back DB and deletes files already written
+  7. Returns standardized JSON with full proposal + nested documents
+
+
+================================================================================
+2. REQUEST FORMAT — HOW THE BODY COLLECTS INPUT
+================================================================================
+
+Content-Type MUST be:
+  multipart/form-data
+
+FastAPI binds inputs using:
+  - File(...)  → binary upload(s) from part name "document"
+  - Form(...)  → text fields from form parts
+
+Why multipart (not JSON)?
+  - Proposal includes binary files (PNG, JPEG, WebP, PDF).
+  - JSON cannot carry raw file bytes in the same request as uploads without
+    base64 (not used here).
+
+How FastAPI collects multiple files:
+  Parameter:
+    document: list[UploadFile] = File(...)
+
+  Client must send MULTIPLE parts with the SAME field name "document":
+    - HTML: <input type="file" name="document" multiple>
+    - Postman: several form-data rows, key=document, type=File
+    - curl:   -F "document=@a.png" -F "document=@b.png"
+
+  FastAPI aggregates all parts named "document" into a Python list.
+
+Single file still works:
+  One part named "document" → list length 1.
+
+Text fields are separate form parts (not query string):
+  fa_number, policy_type, submission_date, note, ocr_extracted_data
+
+
+================================================================================
+3. EVERY FORM FIELD (PARAMETERS)
+================================================================================
+
+┌─────────────────────┬──────────┬──────────┬──────────────────────────────────┐
+│ Field name          │ Type     │ Required │ Rules / notes                    │
+├─────────────────────┼──────────┼──────────┼──────────────────────────────────┤
+│ document            │ file(s)  │ YES      │ 1–20 files per request.          │
+│                     │          │          │ Repeat multipart key "document". │
+│                     │          │          │ Allowed MIME (see storage).      │
+├─────────────────────┼──────────┼──────────┼──────────────────────────────────┤
+│ fa_number           │ string   │ YES      │ Form min 1, max 120 chars.       │
+│                     │          │          │ Stored stripped (.strip()).      │
+│                     │          │          │ Indexed in DB for search.        │
+├─────────────────────┼──────────┼──────────┼──────────────────────────────────┤
+│ policy_type         │ string   │ YES      │ Form min 1, max 120 chars.       │
+│                     │          │          │ Stored stripped. Free text       │
+│                     │          │          │ (e.g. term_life, Term Life).     │
+├─────────────────────┼──────────┼──────────┼──────────────────────────────────┤
+│ submission_date     │ string   │ YES      │ ISO date YYYY-MM-DD only.        │
+│                     │          │          │ Parsed by date.fromisoformat     │
+│                     │          │          │ on first 10 chars after strip.   │
+│                     │          │          │ Invalid → 422.                   │
+├─────────────────────┼──────────┼──────────┼──────────────────────────────────┤
+│ note                │ string   │ NO       │ Max 8000 chars. Nullable in DB.  │
+│                     │          │          │ Agent comment / context.         │
+├─────────────────────┼──────────┼──────────┼──────────────────────────────────┤
+│ ocr_extracted_data  │ string   │ NO       │ Must be valid JSON when sent.    │
+│                     │          │          │ Object {} or array [] only.      │
+│                     │          │          │ Stored on FIRST document only.   │
+│                     │          │          │ Empty/omitted → no OCR on docs.  │
+└─────────────────────┴──────────┴──────────┴──────────────────────────────────┘
+
+NOT in create body:
+  - proposal id (auto-generated)
+  - created_by_id (from JWT user)
+  - ocr_status / underwriter_status / final_status (set by server)
+  - created_at / updated_at (DB defaults)
+
+
+================================================================================
+4. AUTH & PERMISSIONS
+================================================================================
+
+Header:
+  Authorization: Bearer <access_token>
+
+Flow:
+  1. HTTPBearer extracts token
+  2. decode_token() → payload; type must be "access"
+  3. sub claim → user id → load User from DB
+  4. User must be is_active
+  5. require_roles("agent") → user.role.slug must be exactly "agent"
+
+Failures:
+  401 — missing/invalid/expired token, wrong token type, inactive user
+  403 — valid user but role not agent (e.g. admin, underwriter)
+
+creator_id on Proposal = current_user.id from JWT (never trusted from client).
+
+
+================================================================================
+5. REQUEST FLOW (LAYER BY LAYER)
+================================================================================
+
+  Client (multipart)
+       │
+       ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │ app/api/routes/agent_proposal_routes.py                     │
+  │   create_proposal()                                         │
+  │   - _parse_submission_date(submission_date)                 │
+  │   - _parse_ocr_json(ocr_extracted_data)                     │
+  │   - ProposalService(db).create_with_documents(...)          │
+  │   - ProposalOut.model_validate(proposal)                      │
+  │   - success_response(..., status_code=201)                  │
+  └─────────────────────────────────────────────────────────────┘
+       │
+       ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │ app/services/proposal_service.py                            │
+  │   ProposalService.create_with_documents()                   │
+  │   - validate file count (1..20)                             │
+  │   - set ocr_status from OCR payload presence                │
+  │   - build Proposal ORM → repo.add() → flush (gets id)       │
+  │   - for each UploadFile:                                    │
+  │       storage.persist_upload() → disk                       │
+  │       build ProposalDocument → repo.add_document()          │
+  │   - db.commit() or rollback + delete files on error         │
+  └─────────────────────────────────────────────────────────────┘
+       │
+       ├──► app/services/proposal_storage_service.py  (disk)
+       └──► app/repositories/proposal_repository.py   (SQLAlchemy)
+
+
+================================================================================
+6. PARSING & VALIDATION (ROUTE HELPERS)
+================================================================================
+
+_parse_submission_date(raw: str) -> date
+  - raw.strip()[:10] then date.fromisoformat(...)
+  - Accepts "2026-05-12" or longer strings if they start with YYYY-MM-DD
+  - ValueError → HTTP 422 "Invalid submission_date"
+
+_parse_ocr_json(raw: str | None) -> dict | list | None
+  - None or whitespace → None
+  - json.loads(raw)
+  - JSONDecodeError → 422 "ocr_extracted_data must be valid JSON"
+  - Parsed value must be dict or list (not string/number/bool alone)
+  - Otherwise → 422 "must be a JSON object or array"
+
+Route-level Form validation (FastAPI/Pydantic):
+  - fa_number, policy_type: min_length=1, max_length=120
+  - note: max_length=8000 optional
+  - Missing required form/file → 422 validation (global handler)
+
+Service ValueError → HTTP 400 with detail message:
+  - No documents
+  - More than 20 documents
+  - Unsupported MIME type
+  - File too large
+
+
+================================================================================
+7. BUSINESS LOGIC (ProposalService.create_with_documents)
+================================================================================
+
+Signature:
+  create_with_documents(
+    *,
+    creator_id: int,
+    note: str | None,
+    fa_number: str,
+    policy_type: str,
+    submission_date: date,
+    documents: list[UploadFile],
+    ocr_extracted_data: dict | list | None,
+  ) -> Proposal
+
+Constants:
+  MAX_PROPOSAL_DOCUMENTS_PER_REQUEST = 20
+
+Steps:
+  1. if not documents → ValueError("At least one document file is required")
+  2. if len(documents) > 20 → ValueError("At most 20 documents allowed...")
+
+  3. OCR status on proposal row:
+       if ocr_extracted_data is not None → ocr_status = "completed"
+       else                               → ocr_status = "pending"
+
+  4. Create Proposal ORM instance:
+       created_by_id = creator_id
+       note, fa_number (stripped), policy_type (stripped), submission_date
+       ocr_status = as above
+       underwriter_status = "pending"
+       final_status = "open"
+
+  5. repo.add(proposal) → INSERT proposals, flush → proposal.id available
+
+  6. Loop index, document in enumerate(documents):
+       a. storage.persist_upload(document, proposal.id)
+            → (relative_path, size_bytes)
+       b. per_doc_ocr = ocr_extracted_data if index == 0 else None
+       c. ProposalDocument(
+            proposal_id=proposal.id,
+            storage_path=rel_path,
+            original_filename=(document.filename or "upload")[:255],
+            content_type=(document.content_type or "application/octet-stream")
+                         .split(";")[0].strip()[:120],
+            size_bytes=size,
+            ocr_extracted_data=per_doc_ocr,
+          )
+       d. repo.add_document(doc)
+
+  7. db.commit()
+
+  8. On any Exception:
+       db.rollback()
+       delete each file in rel_paths via storage.delete_file()
+       re-raise exception
+
+  9. db.refresh(proposal) → return (documents loaded via selectin relationship)
+
+
+================================================================================
+8. FILE STORAGE (ProposalStorageService)
+================================================================================
+
+Config (app/core/config.py):
+  UPLOAD_ROOT     default "./uploads"
+  MAX_UPLOAD_BYTES default 26214400 (25 MiB per file)
+
+Allowed content types (lowercase, before semicolon):
+  - image/jpeg
+  - image/png
+  - image/webp
+  - application/pdf
+
+persist_upload(upload, proposal_id):
+  1. Reject unknown content_type → ValueError
+  2. Shard directory (UTC):
+       {UPLOAD_ROOT}/proposals/{YYYY}/{MM}/{DD}/
+     mkdir parents=True
+  3. Filename:
+       {proposal_id}_{uuid4_hex}{extension}
+     extension from mimetypes.guess_extension ( .jpe → .jpg )
+  4. Stream write in 1 MiB chunks; track size
+  5. If size > MAX_UPLOAD_BYTES → delete partial file, ValueError
+  6. Return (relative_path from UPLOAD_ROOT, size_bytes)
+
+Example relative path:
+  proposals/2026/05/17/42_a1b2c3d4e5f6....png
+
+storage_path in DB = relative path (not absolute).
+Download APIs resolve via absolute_path() with path traversal guard.
+
+delete_file(relative):
+  Used only on rollback after failed create.
+
+
+================================================================================
+9. DATABASE STORAGE (TABLES & COLUMNS)
+================================================================================
+
+Table: proposals
+──────────────────
+  id                  SERIAL PK
+  created_by_id       FK → users.id (NOT NULL, indexed)
+  note                TEXT nullable
+  fa_number           VARCHAR(120) NOT NULL, indexed
+  policy_type         VARCHAR(120) NOT NULL
+  submission_date     DATE NOT NULL, indexed
+  ocr_status          VARCHAR(32) NOT NULL, default "pending"
+  underwriter_status  VARCHAR(32) NOT NULL, default "pending"
+  final_status        VARCHAR(32) NOT NULL, default "open"
+  created_at          TIMESTAMPTZ NOT NULL, server default now()
+  updated_at          TIMESTAMPTZ NOT NULL, server default now(), on update
+
+Indexes (proposal level):
+  - created_by_id + created_at (agent list pagination)
+  - underwriter_status, ocr_status (underwriter queue filters)
+
+Relationship:
+  - creator → User
+  - documents → ProposalDocument (cascade delete-orphan, lazy selectin)
+
+
+Table: proposal_documents
+─────────────────────────
+  id                  SERIAL PK
+  proposal_id         FK → proposals.id (NOT NULL)
+  storage_path        VARCHAR(512) NOT NULL, UNIQUE (one row per file path)
+  original_filename   VARCHAR(255) NOT NULL (client original name, truncated)
+  content_type        VARCHAR(120) NOT NULL (MIME, parameters stripped)
+  size_bytes          INTEGER NOT NULL
+  ocr_extracted_data  JSONB nullable (PostgreSQL JSON binary)
+  created_at          TIMESTAMPTZ NOT NULL, server default now()
+
+Index:
+  - proposal_id (list documents per proposal)
+
+OCR JSONB:
+  Stores Python dict or list as JSON.
+  Only first uploaded file row gets ocr_extracted_data when provided;
+  other files in same request have NULL.
+
+
+================================================================================
+10. DEFAULT STATUS VALUES ON CREATE
+================================================================================
+
+  ocr_status          "pending"  OR  "completed" if ocr_extracted_data sent
+  underwriter_status  "pending"  (always on create)
+  final_status        "open"     (always on create)
+
+Underwriter later approves via separate API:
+  POST /api/underwriter/proposals/{id}/approve
+  → underwriter_status "approved", final_status "closed_approved"
+
+
+================================================================================
+11. OCR DATA RULES
+================================================================================
+
+Input: form field ocr_extracted_data = STRING containing JSON.
+
+Examples valid:
+  {"insured":"Jane Doe","premium":120}
+  [{"page":1},{"page":2}]
+
+After parse, stored in proposal_documents.ocr_extracted_data (first file only).
+
+Effect on proposal.ocr_status:
+  - JSON provided and parsed → "completed"
+  - Omitted / empty string → "pending"
+
+Second+ files in same request:
+  ocr_extracted_data = NULL always (even if JSON sent — only index 0 gets it).
+
+Mobile/frontend pattern:
+  Run OCR client-side, stringify result, send as one form field with first scan.
+
+
+================================================================================
+12. MULTI-FILE UPLOAD RULES
+================================================================================
+
+  Min files : 1
+  Max files : 20 per POST
+
+  Same proposal id for all files in one request.
+  Each file → separate proposal_documents row + separate disk file.
+  Order preserved by upload order (index 0 = first OCR attachment).
+
+Test reference (test_create_proposal_multiple_documents):
+  page1.png + page2.png → 2 documents; OCR on page1 only.
+
+
+================================================================================
+13. TRANSACTION & ROLLBACK (FAILURE BEHAVIOR)
+================================================================================
+
+Happy path:
+  flush proposal → write files → add document rows → single commit
+
+Failure after some files written:
+  except → rollback() → delete_file() for each path in rel_paths → raise
+
+Cases triggering rollback + file cleanup:
+  - DB error on add_document or commit
+  - ValueError from storage (bad type, too large) mid-loop
+
+Cases NOT creating proposal row (fail before commit):
+  - Auth failure (401/403) — no DB write
+  - Validation before service (422) — no DB write
+  - ValueError before/during service — rollback, may have partial files deleted
+
+Proposal row after flush:
+  If failure after flush but before commit, rollback removes proposal insert
+  (same transaction).
+
+
+================================================================================
+14. RESPONSE SHAPE (SUCCESS — 201)
+================================================================================
+
+Wrapper (app/utils/response.py success_response):
+
+{
+  "success": true,
+  "message": "Proposal created",
+  "data": {
+    "proposal": { ... ProposalOut ... }
+  },
+  "errors": null
+}
+
+ProposalOut fields:
+  id, created_by_id, note, fa_number, policy_type, submission_date,
+  ocr_status, underwriter_status, final_status,
+  created_at, updated_at,
+  documents: [
+    {
+      id,
+      original_filename,
+      content_type,
+      size_bytes,
+      ocr_extracted_data,   // object, array, or null
+      created_at
+    },
+    ...
+  ]
+
+documents loaded via SQLAlchemy relationship (selectin) after refresh.
+
+
+================================================================================
+15. ERROR RESPONSES
+================================================================================
+
+Standard error wrapper (error_response / HTTPException handler):
+
+{
+  "success": false,
+  "message": "<human readable>",
+  "data": null,
+  "errors": <optional detail or validation list>
+}
+
+Typical status codes for CREATE:
+
+  201 — created
+  400 — business rule (ValueError): no files, too many files, bad file type,
+        file too large
+  401 — auth token problems
+  403 — not an agent
+  422 — invalid submission_date, invalid OCR JSON, missing form fields,
+        FastAPI validation errors
+
+
+================================================================================
+16. ENVIRONMENT / CONFIG
+================================================================================
+
+.env / Settings relevant to create:
+
+  DATABASE_URL          PostgreSQL connection
+  UPLOAD_ROOT           File storage root (default ./uploads)
+  MAX_UPLOAD_BYTES      Per-file size limit (default 26214400)
+  JWT_SECRET_KEY        Token signing
+  CORS_ORIGINS          Frontend origins
+
+Tables created at startup via create_missing_tables_and_columns() in dev;
+not a substitute for production migrations.
+
+
+================================================================================
+17. CODE FILE MAP
+================================================================================
+
+  Route (HTTP binding, parsing):
+    app/api/routes/agent_proposal_routes.py
+      → create_proposal()
+      → _parse_submission_date, _parse_ocr_json
+
+  Service (business rules, transaction):
+    app/services/proposal_service.py
+      → ProposalService.create_with_documents()
+
+  Storage (disk):
+    app/services/proposal_storage_service.py
+      → ProposalStorageService.persist_upload()
+
+  Repository (DB add/flush):
+    app/repositories/proposal_repository.py
+      → add(), add_document()
+
+  Models (schema):
+    app/models/proposal.py
+      → Proposal, ProposalDocument
+
+  Response schemas:
+    app/schemas/proposal_schema.py
+      → ProposalOut, ProposalDocumentOut
+
+  Auth:
+    app/dependencies/auth_dependency.py
+      → require_roles("agent")
+
+  Config:
+    app/core/config.py
+
+  Tests:
+    tests/test_agent_proposals_api.py
+
+  Postman:
+    postman_collection.json → "Agent proposals" → "Create Proposal"
+
+  Router registration:
+    app/main.py → include_router(agent_proposal_routes.router)
+
+
+================================================================================
+18. CURL EXAMPLE
+================================================================================
+
+# 1) Login as agent, copy access_token
+
+curl -s -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"agent@example.com","password":"secret","remember_me":false}'
+
+# 2) Create proposal (single file)
+
+curl -s -X POST http://localhost:8000/api/agent/proposals \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -F "document=@/path/to/scan.png" \
+  -F "fa_number=FA-10001" \
+  -F "policy_type=term_life" \
+  -F "submission_date=2026-05-01" \
+  -F "note=Optional agent note" \
+  -F 'ocr_extracted_data={"insured":"Jane Doe","premium":120}'
+
+# 3) Multi-file (repeat -F document)
+
+curl -s -X POST http://localhost:8000/api/agent/proposals \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -F "document=@page1.png" \
+  -F "document=@page2.pdf" \
+  -F "fa_number=FA-MULTI-02" \
+  -F "policy_type=whole_life" \
+  -F "submission_date=2026-05-01"
+
+
+================================================================================
+19. POSTMAN / HTML FORM NOTES
+================================================================================
+
+Postman:
+  Body → form-data
+  Keys: document (File) × N, fa_number, policy_type, submission_date,
+        note (optional), ocr_extracted_data (optional text JSON)
+  Authorization: Bearer {{access_token}}
+  Collection test script saves proposal_id and first document_id on 201.
+
+HTML form sketch:
+  <form method="post" enctype="multipart/form-data"
+        action="http://localhost:8000/api/agent/proposals">
+    <input type="file" name="document" multiple />
+    <input name="fa_number" />
+    <input name="policy_type" />
+    <input name="submission_date" type="date" />
+    <textarea name="note"></textarea>
+    <input name="ocr_extracted_data" />  <!-- JSON string -->
+  </form>
+  (Browser form cannot set Authorization header easily — use app/Postman.)
+
+
+================================================================================
+20. TESTS (WHAT THEY PROVE)
+================================================================================
+
+test_create_list_get_download:
+  - Single PNG, OCR JSON → 201, ocr_status completed, OCR on document
+  - underwriter pending, final open
+  - List, get, download bytes match PNG signature
+
+test_create_proposal_multiple_documents:
+  - Two files same key → 2 document rows, OCR only on first
+
+test_create_ocr_pending_without_json:
+  - No ocr_extracted_data → ocr_status pending
+
+test_non_agent_forbidden:
+  - Admin token → 403 on create
+
+
+================================================================================
+21. RELATED ENDPOINTS (SAME AGENT RESOURCE)
+================================================================================
+
+  GET  /api/agent/proposals              List own proposals (keyset cursor)
+  GET  /api/agent/proposals/{id}         Get own proposal detail
+  GET  /api/agent/proposals/{id}/documents/{doc_id}/file
+                                         Download file bytes
+
+Underwriter (separate prefix, all proposals):
+  GET  /api/underwriter/proposals
+  GET  /api/underwriter/proposals/{id}
+  POST /api/underwriter/proposals/{id}/approve
+
+
+================================================================================
+MEMORIZE CHEAT SHEET
+================================================================================
+
+  POST /api/agent/proposals
+  multipart/form-data + Bearer agent token
+  document × (1..20) | fa_number | policy_type | submission_date | note? | ocr JSON?
+  → proposals row + proposal_documents rows + files under uploads/proposals/YYYY/MM/DD/
+  OCR string → parse JSON → first file only → ocr_status completed else pending
+  Always: underwriter_status pending, final_status open
+  Fail mid-way → rollback DB + delete uploaded files
+
+================================================================================
+  End of document. Generated for SLI backend reference.
+================================================================================

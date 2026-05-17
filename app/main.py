@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.database import SessionLocal, create_missing_tables_and_columns
 from app.seeders.default_admin import seed_default_admin
 from app.seeders.default_roles import seed_default_roles
+from app.seeders.default_underwriter import seed_default_underwriter
 from app.utils.response import error_response
 
 
@@ -19,6 +20,7 @@ async def lifespan(app: FastAPI):
     try:
         seed_default_roles(db)
         seed_default_admin(db)
+        seed_default_underwriter(db)
     finally:
         db.close()
     yield

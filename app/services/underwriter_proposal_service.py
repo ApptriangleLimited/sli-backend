@@ -2,6 +2,8 @@ from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
+from app.constants.proposal_status import UNDERWRITER_APPROVED
+from app.exceptions.proposal_errors import ProposalDecisionConflictError, ProposalNotFoundError
 from app.repositories.proposal_repository import ProposalRepository
 from app.schemas.proposal_schema import (
     ProposalCreatorBriefOut,
@@ -81,6 +83,11 @@ class UnderwriterProposalService:
         proposal = self._repo.get_by_id_with_creator_and_documents(proposal_id)
         if not proposal or not proposal.creator:
             return None
+        return self._to_detail_out(proposal)
+
+    def _to_detail_out(self, proposal) -> ProposalUnderwriterDetailOut:
+        if not proposal.creator:
+            raise ProposalNotFoundError()
         return ProposalUnderwriterDetailOut(
             id=proposal.id,
             creator=ProposalCreatorBriefOut(
@@ -99,3 +106,23 @@ class UnderwriterProposalService:
             updated_at=proposal.updated_at,
             documents=[ProposalDocumentOut.model_validate(d) for d in proposal.documents],
         )
+
+    def approve(self, proposal_id: int) -> ProposalUnderwriterDetailOut:
+        proposal = self._repo.get_by_id_with_creator_and_documents(proposal_id)
+        if not proposal:
+            raise ProposalNotFoundError()
+
+        if self._repo.is_underwriter_approved(proposal):
+            return self._to_detail_out(proposal)
+
+        if self._repo.is_underwriter_rejected(proposal):
+            raise ProposalDecisionConflictError("Cannot approve a rejected proposal")
+
+        self._repo.apply_underwriter_approval(proposal)
+        self._db.commit()
+        self._db.refresh(proposal)
+
+        refreshed = self._repo.get_by_id_with_creator_and_documents(proposal_id)
+        if not refreshed or refreshed.underwriter_status != UNDERWRITER_APPROVED:
+            raise RuntimeError("Proposal approval did not persist")
+        return self._to_detail_out(refreshed)

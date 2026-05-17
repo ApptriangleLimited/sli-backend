@@ -1,0 +1,240 @@
+================================================================================
+  PROPOSAL CREATE API — DOCUMENT UPLOAD SECTIONS (POST /api/agent/proposals)
+================================================================================
+  Updated: structured multipart sections (replaces flat "document" field).
+  Unchanged: fa_number, policy_type, submission_date, note, ocr_extracted_data,
+             auth, statuses, response wrapper, storage, rollback.
+================================================================================
+
+SECTION OVERVIEW
+----------------
+Four document groups in one multipart request:
+
+  1. application_documents[]  — REQUIRED, max 8 files
+  2. applicant_documents[]    — REQUIRED
+  3. nominees[n].documents[]  — OPTIONAL, max 3 nominees, max 6 photos total
+  4. guardian_documents[]     — OPTIONAL
+
+Metadata fields (unchanged):
+  fa_number, policy_type, submission_date, note?, ocr_extracted_data?
+
+Auth: Bearer token, role agent only.
+
+
+================================================================================
+1. APPLICATION DOCUMENTS (required)
+================================================================================
+
+Multipart fields per index i (0..7):
+
+  application_documents[i][file]           — binary (required per slot)
+  application_documents[i][document_type]  — text (required per slot)
+
+Allowed document_type:
+  - application_form
+  - supporting_document
+
+Rules:
+  - At least 1 application document required
+  - Maximum 8 application documents
+
+
+================================================================================
+2. APPLICANT DOCUMENTS (required)
+================================================================================
+
+Multipart fields per index i:
+
+  applicant_documents[i][file]
+  applicant_documents[i][document_type]
+  applicant_documents[i][side]             — optional text: front | back
+
+Allowed document_type:
+  - photo          — applicant portrait (optional, max 1; not counted as sole identity doc)
+  - nid
+  - birth_certificate
+  - driving_license
+  - passport
+  - ssc_certificate
+
+Side rules:
+  - nid, driving_license, passport → may use front and/or back
+  - birth_certificate, ssc_certificate, photo → side must be omitted
+  - side values: front | back only
+
+Example NID front + back:
+  applicant_documents[0][document_type] = nid
+  applicant_documents[0][side] = front
+  applicant_documents[0][file] = <nid_front.jpg>
+
+  applicant_documents[1][document_type] = nid
+  applicant_documents[1][side] = back
+  applicant_documents[1][file] = <nid_back.jpg>
+
+Rules:
+  - At least 1 applicant document required
+
+
+================================================================================
+3. NOMINEE DOCUMENTS (optional)
+================================================================================
+
+Multipart fields per nominee n and document d:
+
+  nominees[n][documents][d][file]
+  nominees[n][documents][d][document_type]
+  nominees[n][documents][d][side]          — optional (front|back for nid/dl/passport)
+
+Allowed document_type:
+  - photo
+  - nid
+  - birth_certificate
+  - driving_license
+  - passport
+  - ssc_certificate
+  - tika_card
+
+Rules:
+  - nominee index n must be 0, 1, or 2 (max 3 nominees)
+  - nominee_index 3+ → 400
+  - document_type photo counted across ALL nominees
+  - max 6 photo documents total in nominee section
+
+
+================================================================================
+4. GUARDIAN DOCUMENTS (optional)
+================================================================================
+
+Multipart fields per index i:
+
+  guardian_documents[i][file]
+  guardian_documents[i][document_type]
+  guardian_documents[i][side]              — optional front|back
+
+Allowed document_type:
+  - nid
+  - birth_certificate
+  - driving_license
+  - passport
+  - ssc_certificate
+  - tika_card
+
+Same side rules as applicant for nid / driving_license / passport.
+
+
+================================================================================
+DATABASE: proposal_documents (new columns)
+================================================================================
+
+  section_type       VARCHAR(32) NOT NULL  — application | applicant | nominee | guardian
+  document_type      VARCHAR(64) NOT NULL  — e.g. nid, application_form, photo
+  side               VARCHAR(16) NULL      — front | back
+  nominee_index      INTEGER NULL          — set for nominee section only
+  document_group_id  VARCHAR(36) NULL      — links front/back pairs (UUID)
+
+Existing columns unchanged:
+  proposal_id, storage_path, original_filename, content_type,
+  size_bytes, ocr_extracted_data (JSONB), created_at
+
+
+================================================================================
+PERSIST ORDER & OCR
+================================================================================
+
+Upload order saved to DB:
+  1. application (by index)
+  2. applicant (by index)
+  3. nominee (by nominee index, then document index)
+  4. guardian (by index)
+
+ocr_extracted_data (form JSON string) still proposal-level:
+  - If sent → proposal.ocr_status = completed
+  - Stored on FIRST persisted document only (first application file)
+
+front/back pairing:
+  - document_group_id assigned when side is front/back on nid/dl/passport
+  - back shares group id with preceding front for same section+type+nominee
+
+
+================================================================================
+RESPONSE: documents[] item shape
+================================================================================
+
+{
+  "id": 1,
+  "section_type": "applicant",
+  "document_type": "nid",
+  "side": "front",
+  "nominee_index": null,
+  "document_group_id": "uuid-or-null",
+  "original_filename": "nid_front.jpg",
+  "content_type": "image/jpeg",
+  "size_bytes": 120000,
+  "ocr_extracted_data": null,
+  "created_at": "2026-05-12T10:00:00Z"
+}
+
+
+================================================================================
+VALIDATION ERRORS (400)
+================================================================================
+
+  - Missing application section
+  - Missing applicant section
+  - > 8 application documents
+  - > 3 nominees (index >= 3)
+  - > 6 nominee photos
+  - Unsupported document_type for section
+  - side on disallowed document_type
+  - Invalid side value
+  - Missing file or document_type on a slot
+  - Unsupported MIME / file too large (storage)
+
+
+================================================================================
+CODE LAYERS
+================================================================================
+
+  Route:     app/api/routes/agent_proposal_routes.py
+             async create → await request.form() → parse sections
+
+  Parser:    app/services/proposal_document_multipart_parser.py
+             parse_proposal_documents_from_form(form)
+
+  Validate:  app/services/proposal_document_validation_service.py
+             ProposalDocumentValidationService.build_bundle()
+
+  Service:   app/services/proposal_service.py
+             create_with_documents(document_bundle=...)
+
+  Constants: app/constants/proposal_documents.py
+
+  Model:     app/models/proposal.py → ProposalDocument
+
+  Schema:    app/schemas/proposal_document_upload.py
+             app/schemas/proposal_schema.py → ProposalDocumentOut
+
+
+================================================================================
+CURL MINIMAL EXAMPLE
+================================================================================
+
+curl -X POST http://localhost:8000/api/agent/proposals \
+  -H "Authorization: Bearer TOKEN" \
+  -F "fa_number=FA-10001" \
+  -F "policy_type=term_life" \
+  -F "submission_date=2026-05-01" \
+  -F "application_documents[0][document_type]=application_form" \
+  -F "application_documents[0][file]=@form.pdf" \
+  -F "applicant_documents[0][document_type]=birth_certificate" \
+  -F "applicant_documents[0][file]=@bc.pdf"
+
+
+================================================================================
+TESTS: tests/test_agent_proposals_api.py (16 cases)
+================================================================================
+
+  Application, applicant front/back, nominees, guardian, limits, invalid types,
+  side rules, rollback, list/get/download, OCR pending, auth forbidden.
+
+================================================================================

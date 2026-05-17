@@ -1,15 +1,17 @@
 import json
 from datetime import date, datetime
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from starlette.datastructures import FormData
 
 from app.core.database import get_db
 from app.dependencies.auth_dependency import require_roles
 from app.models.user import User
 from app.repositories.proposal_repository import ProposalRepository
 from app.schemas.proposal_schema import ProposalListEnvelope, ProposalOut
+from app.services.proposal_document_multipart_parser import parse_proposal_documents_from_form
 from app.services.proposal_service import ProposalService
 from app.services.proposal_storage_service import ProposalStorageService
 from app.utils.response import success_response
@@ -44,36 +46,79 @@ def _parse_ocr_json(raw: str | None) -> dict | list | None:
     return parsed
 
 
+def _ensure_multipart_request(request: Request, form: FormData) -> None:
+    content_type = request.headers.get("content-type", "").lower()
+    if "multipart/form-data" in content_type:
+        return
+    if "application/json" in content_type:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=(
+                "POST /api/agent/proposals requires multipart/form-data, not application/json. "
+                "Send fa_number, policy_type, submission_date, and document sections as form "
+                "fields; attach files on keys like application_documents[0][file]."
+            ),
+        )
+    if not list(form.keys()):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Missing multipart form fields. Use Content-Type multipart/form-data with "
+                "fa_number, policy_type, submission_date, and document section fields "
+                "(not a raw JSON body)."
+            ),
+        )
+
+
+def _form_str(form: FormData, key: str, *, required: bool = True) -> str | None:
+    value = form.get(key)
+    if value is None or (isinstance(value, str) and value.strip() == ""):
+        if required:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"{key} is required (send as a form-data text field, not JSON body)",
+            )
+        return None
+    if not isinstance(value, str):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{key} must be a text field",
+        )
+    return value
+
+
 @router.post("/proposals", status_code=status.HTTP_201_CREATED)
-def create_proposal(
-    document: list[UploadFile] = File(
-        ...,
-        description=(
-            "One or more proposal files. Repeat the multipart part named `document` for each file "
-            "(HTML: <input name='document' multiple>, or multiple form fields with the same name)."
-        ),
-    ),
-    fa_number: str = Form(..., min_length=1, max_length=120),
-    policy_type: str = Form(..., min_length=1, max_length=120),
-    submission_date: str = Form(..., description="ISO date YYYY-MM-DD"),
-    note: str | None = Form(None, max_length=8000),
-    ocr_extracted_data: str | None = Form(
-        None,
-        description="JSON string from mobile OCR (object or array); stored on the first uploaded file only.",
-    ),
+async def create_proposal(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = _AGENT,
 ):
-    sub_date = _parse_submission_date(submission_date)
-    ocr_payload = _parse_ocr_json(ocr_extracted_data)
+    form = await request.form()
+    _ensure_multipart_request(request, form)
+
+    fa_raw = _form_str(form, "fa_number")
+    policy_raw = _form_str(form, "policy_type")
+    submission_raw = _form_str(form, "submission_date")
+    note_raw = _form_str(form, "note", required=False)
+    ocr_raw = form.get("ocr_extracted_data")
+    ocr_str = ocr_raw if isinstance(ocr_raw, str) else None
+
+    sub_date = _parse_submission_date(submission_raw)  # type: ignore[arg-type]
+    ocr_payload = _parse_ocr_json(ocr_str)
+
+    try:
+        document_bundle = parse_proposal_documents_from_form(form)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
     try:
         proposal = ProposalService(db).create_with_documents(
             creator_id=current_user.id,
-            note=note,
-            fa_number=fa_number,
-            policy_type=policy_type,
+            note=note_raw,
+            fa_number=fa_raw,  # type: ignore[arg-type]
+            policy_type=policy_raw,  # type: ignore[arg-type]
             submission_date=sub_date,
-            documents=document,
+            document_bundle=document_bundle,
             ocr_extracted_data=ocr_payload,
         )
     except ValueError as exc:

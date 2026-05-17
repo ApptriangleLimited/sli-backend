@@ -364,7 +364,7 @@
       "description": "Requires Bearer token for user with role **agent**. Use Authentication > Login Agent (or register as agent).",
       "item": [
         {
-          "name": "Create Proposal",
+          "name": "Create Proposal (minimal)",
           "event": [
             {
               "listen": "test",
@@ -397,18 +397,6 @@
               "mode": "formdata",
               "formdata": [
                 {
-                  "key": "document",
-                  "description": "Proposal file(s). Add multiple rows with key **document** for multi-file upload (stored as separate proposal_documents).",
-                  "type": "file",
-                  "src": []
-                },
-                {
-                  "key": "document",
-                  "description": "Optional: additional file (same key **document**)",
-                  "type": "file",
-                  "src": []
-                },
-                {
                   "key": "fa_number",
                   "type": "text",
                   "value": "FA-10001"
@@ -416,24 +404,34 @@
                 {
                   "key": "policy_type",
                   "type": "text",
-                  "value": "Term Life"
+                  "value": "term_life"
                 },
                 {
                   "key": "submission_date",
-                  "description": "ISO date YYYY-MM-DD",
                   "type": "text",
                   "value": "2026-05-01"
                 },
                 {
-                  "key": "note",
+                  "key": "application_documents[0][document_type]",
                   "type": "text",
-                  "value": "Optional note from agent"
+                  "value": "application_form"
                 },
                 {
-                  "key": "ocr_extracted_data",
-                  "description": "Optional JSON string (object or array) from mobile OCR",
+                  "key": "application_documents[0][file]",
+                  "type": "file",
+                  "src": [],
+                  "description": "REQUIRED: click Select Files and pick a PDF/PNG"
+                },
+                {
+                  "key": "applicant_documents[0][document_type]",
                   "type": "text",
-                  "value": "{\"policyNumber\":\"X1\",\"insured\":\"Jane Doe\"}"
+                  "value": "birth_certificate"
+                },
+                {
+                  "key": "applicant_documents[0][file]",
+                  "type": "file",
+                  "src": [],
+                  "description": "REQUIRED: click Select Files and pick a PDF/PNG"
                 }
               ]
             },
@@ -442,7 +440,176 @@
               "host": ["{{base_url}}"],
               "path": ["api", "agent", "proposals"]
             },
-            "description": "Multipart form: one or more **document** file parts (repeat the key). Optional **ocr_extracted_data** JSON is stored on the first file only. On 201 success, Tests script stores proposal_id and first document_id in collection variables."
+            "description": "Body MUST be form-data (not raw JSON). Select a file for each [file] row. Run Login Agent first."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Proposal (full example)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "  const r = pm.response.json();",
+                  "  if (r.success && r.data && r.data.proposal) {",
+                  "    pm.collectionVariables.set('proposal_id', String(r.data.proposal.id));",
+                  "    const docs = r.data.proposal.documents;",
+                  "    if (docs && docs.length) {",
+                  "      pm.collectionVariables.set('document_id', String(docs[0].id));",
+                  "    }",
+                  "  }",
+                  "} catch (e) {}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "fa_number",
+                  "type": "text",
+                  "value": "FA-20042"
+                },
+                {
+                  "key": "policy_type",
+                  "type": "text",
+                  "value": "whole_life"
+                },
+                {
+                  "key": "submission_date",
+                  "type": "text",
+                  "value": "2026-05-12"
+                },
+                {
+                  "key": "note",
+                  "type": "text",
+                  "value": "Full section test"
+                },
+                {
+                  "key": "ocr_extracted_data",
+                  "type": "text",
+                  "value": "{\"insured\":\"Karim Ahmed\",\"fa_number\":\"FA-20042\",\"premium\":150000}"
+                },
+                {
+                  "key": "application_documents[0][document_type]",
+                  "type": "text",
+                  "value": "application_form"
+                },
+                {
+                  "key": "application_documents[0][file]",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "application_documents[1][document_type]",
+                  "type": "text",
+                  "value": "supporting_document"
+                },
+                {
+                  "key": "application_documents[1][file]",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "applicant_documents[0][document_type]",
+                  "type": "text",
+                  "value": "nid"
+                },
+                {
+                  "key": "applicant_documents[0][side]",
+                  "type": "text",
+                  "value": "front"
+                },
+                {
+                  "key": "applicant_documents[0][file]",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "applicant_documents[1][document_type]",
+                  "type": "text",
+                  "value": "nid"
+                },
+                {
+                  "key": "applicant_documents[1][side]",
+                  "type": "text",
+                  "value": "back"
+                },
+                {
+                  "key": "applicant_documents[1][file]",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "nominees[0][documents][0][document_type]",
+                  "type": "text",
+                  "value": "photo"
+                },
+                {
+                  "key": "nominees[0][documents][0][file]",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "nominees[0][documents][1][document_type]",
+                  "type": "text",
+                  "value": "nid"
+                },
+                {
+                  "key": "nominees[0][documents][1][side]",
+                  "type": "text",
+                  "value": "front"
+                },
+                {
+                  "key": "nominees[0][documents][1][file]",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "nominees[1][documents][0][document_type]",
+                  "type": "text",
+                  "value": "photo"
+                },
+                {
+                  "key": "nominees[1][documents][0][file]",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "guardian_documents[0][document_type]",
+                  "type": "text",
+                  "value": "nid"
+                },
+                {
+                  "key": "guardian_documents[0][side]",
+                  "type": "text",
+                  "value": "front"
+                },
+                {
+                  "key": "guardian_documents[0][file]",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/agent/proposals",
+              "host": ["{{base_url}}"],
+              "path": ["api", "agent", "proposals"]
+            },
+            "description": "Body MUST be form-data. Attach a real file on EVERY row with type File. Do not use Body > raw > JSON."
           },
           "response": []
         },
@@ -606,6 +773,25 @@
               "path": ["api", "underwriter", "proposals", "{{proposal_id}}"]
             },
             "description": "Full proposal for review including documents with OCR payloads."
+          },
+          "response": []
+        },
+        {
+          "name": "Approve Proposal",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/underwriter/proposals/{{proposal_id}}/approve",
+              "host": ["{{base_url}}"],
+              "path": ["api", "underwriter", "proposals", "{{proposal_id}}", "approve"]
+            },
+            "description": "Sets underwriter_status to approved and final_status to closed_approved. Idempotent if already approved."
           },
           "response": []
         },

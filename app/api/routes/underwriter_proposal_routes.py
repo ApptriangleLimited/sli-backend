@@ -10,6 +10,7 @@ from app.models.user import User
 from app.repositories.proposal_repository import ProposalRepository
 from app.schemas.proposal_schema import ProposalUnderwriterTableEnvelope
 from app.services.proposal_storage_service import ProposalStorageService
+from app.exceptions.proposal_errors import ProposalDecisionConflictError, ProposalNotFoundError
 from app.services.underwriter_proposal_service import UnderwriterProposalService
 from app.utils.response import success_response
 
@@ -84,6 +85,26 @@ def get_proposal_detail(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found")
     return success_response(
         message="Proposal fetched",
+        data={"proposal": detail.model_dump()},
+    )
+
+
+@router.post("/proposals/{proposal_id}/approve")
+def approve_proposal(
+    proposal_id: int,
+    db: Session = Depends(get_db),
+    _uw: User = _UNDERWRITER_OR_ADMIN,
+):
+    service = UnderwriterProposalService(db)
+    try:
+        detail = service.approve(proposal_id)
+    except ProposalNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found") from exc
+    except ProposalDecisionConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from exc
+
+    return success_response(
+        message="Proposal approved",
         data={"proposal": detail.model_dump()},
     )
 

@@ -3,6 +3,11 @@ from datetime import date, datetime
 from sqlalchemy import Select, cast, func, or_, select, String
 from sqlalchemy.orm import Session, selectinload
 
+from app.constants.proposal_status import (
+    FINAL_CLOSED_APPROVED,
+    UNDERWRITER_APPROVED,
+    UNDERWRITER_REJECTED,
+)
 from app.models.proposal import Proposal, ProposalDocument
 from app.models.user import User
 
@@ -180,6 +185,18 @@ class ProposalRepository:
             ProposalDocument.proposal_id == proposal_id,
         )
         return self._db.execute(stmt).scalar_one_or_none()
+
+    def apply_underwriter_approval(self, proposal: Proposal) -> Proposal:
+        proposal.underwriter_status = UNDERWRITER_APPROVED
+        proposal.final_status = FINAL_CLOSED_APPROVED
+        self._db.flush()
+        return proposal
+
+    def is_underwriter_rejected(self, proposal: Proposal) -> bool:
+        return proposal.underwriter_status == UNDERWRITER_REJECTED
+
+    def is_underwriter_approved(self, proposal: Proposal) -> bool:
+        return proposal.underwriter_status == UNDERWRITER_APPROVED
 
     def get_document_owned(
         self, proposal_id: int, document_id: int, owner_user_id: int

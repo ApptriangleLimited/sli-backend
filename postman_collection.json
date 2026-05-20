@@ -361,7 +361,7 @@
     },
     {
       "name": "Agent proposals",
-      "description": "Requires Bearer token for user with role **agent**. Use Authentication > Login Agent (or register as agent).",
+      "description": "Requires Bearer token for role **agent**. Multipart create uses application_documents[], applicant_documents[] (types: photo, signature, nid, birth_certificate, driving_license, passport, ssc_certificate), optional nominees[] and guardian_documents[]. See docs/PROPOSAL_CREATE_API_DOCUMENT_SECTIONS.txt.",
       "item": [
         {
           "name": "Create Proposal (minimal)",
@@ -440,7 +440,115 @@
               "host": ["{{base_url}}"],
               "path": ["api", "agent", "proposals"]
             },
-            "description": "Body MUST be form-data (not raw JSON). Select a file for each [file] row. Run Login Agent first."
+            "description": "Body MUST be form-data (not raw JSON). Select a file for each [file] row. Run Login Agent first.\n\nApplicant document_type values: photo (max 1), signature (max 1), nid, birth_certificate, driving_license, passport, ssc_certificate. At least one identity doc required; photo/signature alone are not sufficient."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Proposal (nid + photo + signature)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "  const r = pm.response.json();",
+                  "  if (r.success && r.data && r.data.proposal) {",
+                  "    pm.collectionVariables.set('proposal_id', String(r.data.proposal.id));",
+                  "    const docs = r.data.proposal.documents;",
+                  "    if (docs && docs.length) {",
+                  "      pm.collectionVariables.set('document_id', String(docs[0].id));",
+                  "    }",
+                  "  }",
+                  "} catch (e) {}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "fa_number",
+                  "type": "text",
+                  "value": "FA-10002"
+                },
+                {
+                  "key": "policy_type",
+                  "type": "text",
+                  "value": "term_life"
+                },
+                {
+                  "key": "submission_date",
+                  "type": "text",
+                  "value": "2026-05-01"
+                },
+                {
+                  "key": "application_documents[0][document_type]",
+                  "type": "text",
+                  "value": "application_form"
+                },
+                {
+                  "key": "application_documents[0][file]",
+                  "type": "file",
+                  "src": [],
+                  "description": "Application form PDF/PNG"
+                },
+                {
+                  "key": "applicant_documents[0][document_type]",
+                  "type": "text",
+                  "value": "nid"
+                },
+                {
+                  "key": "applicant_documents[0][side]",
+                  "type": "text",
+                  "value": "front"
+                },
+                {
+                  "key": "applicant_documents[0][file]",
+                  "type": "file",
+                  "src": [],
+                  "description": "NID front (identity doc)"
+                },
+                {
+                  "key": "applicant_documents[1][document_type]",
+                  "type": "text",
+                  "value": "photo"
+                },
+                {
+                  "key": "applicant_documents[1][file]",
+                  "type": "file",
+                  "src": [],
+                  "description": "Applicant portrait (optional, max 1)"
+                },
+                {
+                  "key": "applicant_documents[2][document_type]",
+                  "type": "text",
+                  "value": "signature"
+                },
+                {
+                  "key": "applicant_documents[2][file]",
+                  "type": "file",
+                  "src": [],
+                  "description": "Applicant signature scan (optional, max 1; no side)"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/agent/proposals",
+              "host": ["{{base_url}}"],
+              "path": ["api", "agent", "proposals"]
+            },
+            "description": "Typical applicant bundle: identity (nid) + optional photo + signature. signature has no side field."
           },
           "response": []
         },
@@ -553,6 +661,28 @@
                   "src": []
                 },
                 {
+                  "key": "applicant_documents[2][document_type]",
+                  "type": "text",
+                  "value": "photo"
+                },
+                {
+                  "key": "applicant_documents[2][file]",
+                  "type": "file",
+                  "src": [],
+                  "description": "Applicant photo (max 1)"
+                },
+                {
+                  "key": "applicant_documents[3][document_type]",
+                  "type": "text",
+                  "value": "signature"
+                },
+                {
+                  "key": "applicant_documents[3][file]",
+                  "type": "file",
+                  "src": [],
+                  "description": "Applicant signature (max 1; no side)"
+                },
+                {
                   "key": "nominees[0][documents][0][document_type]",
                   "type": "text",
                   "value": "photo"
@@ -609,7 +739,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "agent", "proposals"]
             },
-            "description": "Body MUST be form-data. Attach a real file on EVERY row with type File. Do not use Body > raw > JSON."
+            "description": "Body MUST be form-data. Attach a real file on EVERY row with type File. Do not use Body > raw > JSON.\n\nIncludes applicant photo + signature alongside NID front/back, nominees, and guardian."
           },
           "response": []
         },

@@ -16,12 +16,19 @@ class Settings(BaseSettings):
     REMEMBER_ME_ACCESS_TOKEN_EXPIRE_DAYS: int = 7
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     CORS_ORIGINS: str = "http://localhost:8080,http://127.0.0.1:8080"
+    # Optional regex string from env (e.g. Vercel preview URLs). Empty = disabled.
+    CORS_ORIGIN_REGEX: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
+    @property
+    def cors_origin_regex(self) -> str | None:
+        raw = self.CORS_ORIGIN_REGEX.strip()
+        return raw or None
 
 
 @lru_cache

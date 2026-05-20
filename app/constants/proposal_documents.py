@@ -20,6 +20,7 @@ APPLICATION_DOCUMENT_TYPES: Final = frozenset({"application_form", "supporting_d
 APPLICANT_DOCUMENT_TYPES: Final = frozenset(
     {
         "photo",
+        "signature",
         "nid",
         "birth_certificate",
         "driving_license",
@@ -29,7 +30,9 @@ APPLICANT_DOCUMENT_TYPES: Final = frozenset(
 )
 
 APPLICANT_PHOTO_TYPE: Final = "photo"
+APPLICANT_SIGNATURE_TYPE: Final = "signature"
 MAX_APPLICANT_PHOTOS: Final = 1
+MAX_APPLICANT_SIGNATURES: Final = 1
 
 NOMINEE_DOCUMENT_TYPES: Final = frozenset(
     {

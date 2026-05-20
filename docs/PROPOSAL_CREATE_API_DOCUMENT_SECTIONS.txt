@@ -51,6 +51,7 @@ Multipart fields per index i:
 
 Allowed document_type:
   - photo          — applicant portrait (optional, max 1; not counted as sole identity doc)
+  - signature      — applicant signature (optional, max 1; not counted as sole identity doc)
   - nid
   - birth_certificate
   - driving_license
@@ -59,7 +60,7 @@ Allowed document_type:
 
 Side rules:
   - nid, driving_license, passport → may use front and/or back
-  - birth_certificate, ssc_certificate, photo → side must be omitted
+  - birth_certificate, ssc_certificate, photo, signature → side must be omitted
   - side values: front | back only
 
 Example NID front + back:

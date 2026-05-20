@@ -146,9 +146,42 @@ def test_create_applicant_photo(client: TestClient, agent_token: str):
     assert photo[0]["side"] is None
 
 
+def test_create_applicant_signature(client: TestClient, agent_token: str):
+    data, files = _merge_payload(
+        _application_fields(0),
+        _applicant_fields(0, "nid", "front"),
+        _applicant_fields(1, "signature", filename="applicant_signature.png"),
+    )
+    r = _post_create(client, agent_token, data, files, fa_number="FA-APP-SIG")
+    assert r.status_code == 201, r.text
+    app_docs = [d for d in r.json()["data"]["proposal"]["documents"] if d["section_type"] == "applicant"]
+    signatures = [d for d in app_docs if d["document_type"] == "signature"]
+    assert len(signatures) == 1
+    assert signatures[0]["side"] is None
+
+
+def test_reject_more_than_one_applicant_signature(client: TestClient, agent_token: str):
+    data, files = _merge_payload(
+        _application_fields(0),
+        _applicant_fields(0, "passport"),
+        _applicant_fields(1, "signature", filename="sig1.png"),
+        _applicant_fields(2, "signature", filename="sig2.png"),
+    )
+    r = _post_create(client, agent_token, data, files, fa_number="FA-SIG-MAX")
+    assert r.status_code == 400
+    assert "signature" in r.json()["message"].lower()
+
+
 def test_reject_applicant_photo_only(client: TestClient, agent_token: str):
     data, files = _merge_payload(_application_fields(0), _applicant_fields(0, "photo"))
     r = _post_create(client, agent_token, data, files, fa_number="FA-PHOTO-ONLY")
+    assert r.status_code == 400
+    assert "identity document" in r.json()["message"].lower()
+
+
+def test_reject_applicant_signature_only(client: TestClient, agent_token: str):
+    data, files = _merge_payload(_application_fields(0), _applicant_fields(0, "signature"))
+    r = _post_create(client, agent_token, data, files, fa_number="FA-SIG-ONLY")
     assert r.status_code == 400
     assert "identity document" in r.json()["message"].lower()
 

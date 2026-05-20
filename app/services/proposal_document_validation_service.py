@@ -4,6 +4,8 @@ from collections import defaultdict
 from app.constants.proposal_documents import (
     APPLICANT_DOCUMENT_TYPES,
     APPLICANT_PHOTO_TYPE,
+    APPLICANT_SIGNATURE_TYPE,
+    MAX_APPLICANT_SIGNATURES,
     APPLICATION_DOCUMENT_TYPES,
     DOCUMENT_TYPES_WITH_SIDES,
     GUARDIAN_DOCUMENT_TYPES,
@@ -62,13 +64,20 @@ class ProposalDocumentValidationService:
         )
         if applicant_photo_count > MAX_APPLICANT_PHOTOS:
             raise ValueError(f"At most {MAX_APPLICANT_PHOTOS} applicant photo allowed")
-        non_photo_applicant = [
-            item for item in applicant_items if item.document_type != APPLICANT_PHOTO_TYPE
+        applicant_signature_count = sum(
+            1 for item in applicant_items if item.document_type == APPLICANT_SIGNATURE_TYPE
+        )
+        if applicant_signature_count > MAX_APPLICANT_SIGNATURES:
+            raise ValueError(f"At most {MAX_APPLICANT_SIGNATURES} applicant signature allowed")
+        non_identity_applicant = [
+            item
+            for item in applicant_items
+            if item.document_type not in (APPLICANT_PHOTO_TYPE, APPLICANT_SIGNATURE_TYPE)
         ]
-        if not non_photo_applicant:
+        if not non_identity_applicant:
             raise ValueError(
                 "At least one applicant identity document is required (e.g. nid, birth_certificate); "
-                "photo alone is not sufficient",
+                "photo or signature alone is not sufficient",
             )
 
         nominee_items, nominee_indices, nominee_photo_count = (

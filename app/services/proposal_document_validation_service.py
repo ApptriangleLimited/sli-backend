@@ -8,9 +8,12 @@ from app.constants.proposal_documents import (
     MAX_APPLICANT_SIGNATURES,
     APPLICATION_DOCUMENT_TYPES,
     DOCUMENT_TYPES_WITH_SIDES,
+    GUARDIAN_AGE_PROOF_DOCUMENT_TYPES,
     GUARDIAN_DOCUMENT_TYPES,
+    GUARDIAN_PHOTO_TYPE,
     MAX_APPLICANT_PHOTOS,
     MAX_APPLICATION_DOCUMENTS,
+    MAX_GUARDIAN_PHOTOS,
     MAX_NOMINEE_PHOTOS,
     MAX_NOMINEES,
     NOMINEE_DOCUMENT_TYPES,
@@ -23,6 +26,8 @@ from app.constants.proposal_documents import (
     SIDE_FRONT,
     SIDES,
 )
+
+_GUARDIAN_PHOTO_CONTENT_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
 from app.schemas.proposal_document_upload import ProposalDocumentUploadBundle, ProposalDocumentUploadItem
 from app.services.proposal_document_multipart_parser import _Slot
 
@@ -90,13 +95,7 @@ class ProposalDocumentValidationService:
         if nominee_photo_count > MAX_NOMINEE_PHOTOS:
             raise ValueError(f"At most {MAX_NOMINEE_PHOTOS} nominee photo documents allowed")
 
-        guardian_items = ProposalDocumentValidationService._parse_section_slots(
-            guardian_slots,
-            section_type=SECTION_GUARDIAN,
-            allowed_types=GUARDIAN_DOCUMENT_TYPES,
-            nominee_index=None,
-            label="guardian_documents",
-        )
+        guardian_items = ProposalDocumentValidationService._parse_guardian_slots(guardian_slots)
 
         items.extend(app_items)
         items.extend(applicant_items)
@@ -104,6 +103,52 @@ class ProposalDocumentValidationService:
         items.extend(guardian_items)
 
         return ProposalDocumentUploadBundle(items=tuple(items))
+
+    @staticmethod
+    def _parse_guardian_slots(
+        guardian_slots: dict[int, _Slot],
+    ) -> list[ProposalDocumentUploadItem]:
+        """Legal Guardian: Photo (image only) + Age Proof identity documents."""
+        if not guardian_slots:
+            return []
+
+        items = ProposalDocumentValidationService._parse_section_slots(
+            guardian_slots,
+            section_type=SECTION_GUARDIAN,
+            allowed_types=GUARDIAN_DOCUMENT_TYPES,
+            nominee_index=None,
+            label="guardian_documents",
+        )
+
+        photo_count = sum(1 for item in items if item.document_type == GUARDIAN_PHOTO_TYPE)
+        if photo_count > MAX_GUARDIAN_PHOTOS:
+            raise ValueError(f"At most {MAX_GUARDIAN_PHOTOS} legal guardian photo allowed")
+
+        for idx in sorted(guardian_slots.keys()):
+            slot = guardian_slots[idx]
+            label = f"guardian_documents[{idx}]"
+            document_type = (slot.document_type or "").strip().lower()
+            if document_type != GUARDIAN_PHOTO_TYPE:
+                continue
+            if slot.file is None:
+                continue
+            content_type = (slot.file.content_type or "").split(";")[0].strip().lower()
+            if content_type not in _GUARDIAN_PHOTO_CONTENT_TYPES:
+                raise ValueError(
+                    f"Legal guardian photo at {label} must be an image (JPEG, PNG, or WebP); "
+                    f"got {content_type or 'unknown'}",
+                )
+
+        age_proof_count = sum(
+            1 for item in items if item.document_type in GUARDIAN_AGE_PROOF_DOCUMENT_TYPES
+        )
+        if items and age_proof_count == 0:
+            raise ValueError(
+                "Legal guardian section requires at least one age proof document "
+                "(e.g. birth_certificate, nid, passport, ssc_certificate)",
+            )
+
+        return items
 
     @staticmethod
     def _parse_nominee_slots(

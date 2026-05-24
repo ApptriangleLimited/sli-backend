@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "7c9c6f6a-2ee1-4a8a-bd7f-sli-backend",
     "name": "SLI Backend API",
-    "description": "FastAPI backend API collection for SLI: health, auth, admin users, agent proposals (multipart upload + list/detail/file), and underwriter proposal queue + detail/file.",
+    "description": "FastAPI backend API collection for SLI (v1.0.0).\n\n**Routes:** GET /health · Auth (/api/auth) · Profile (/api/profile) · Admin (/api/admin) · Agent proposals (/api/agent) · Underwriter proposals (/api/underwriter).\n\n**Auth user object** includes phone, has_profile_image, role. Use Login requests to set {{access_token}} and {{refresh_token}} collection variables.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -277,7 +277,8 @@
               "raw": "{{base_url}}/api/auth/me",
               "host": ["{{base_url}}"],
               "path": ["api", "auth", "me"]
-            }
+            },
+            "description": "Returns data.user with id, name, email, phone, has_profile_image, is_active, role."
           },
           "response": []
         },
@@ -304,6 +305,79 @@
               "host": ["{{base_url}}"],
               "path": ["api", "auth", "logout"]
             }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Profile",
+      "description": "Requires Bearer token (any authenticated role). PATCH updates name, phone, and/or avatar; GET /avatar returns the profile image file.",
+      "item": [
+        {
+          "name": "Update Profile",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name",
+                  "type": "text",
+                  "value": "Updated Name",
+                  "description": "Optional"
+                },
+                {
+                  "key": "phone",
+                  "type": "text",
+                  "value": "+8801712345678",
+                  "description": "Optional"
+                },
+                {
+                  "key": "remove_avatar",
+                  "type": "text",
+                  "value": "false",
+                  "description": "Set true to delete current avatar"
+                },
+                {
+                  "key": "avatar",
+                  "type": "file",
+                  "src": [],
+                  "description": "Optional JPEG/PNG/WebP"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/profile",
+              "host": ["{{base_url}}"],
+              "path": ["api", "profile"]
+            },
+            "description": "Multipart form-data. Send only fields you want to change. Response data.user includes phone and has_profile_image."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Profile Avatar",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/profile/avatar",
+              "host": ["{{base_url}}"],
+              "path": ["api", "profile", "avatar"]
+            },
+            "description": "Returns raw image bytes (404 if user has no avatar). Use after login when has_profile_image is true."
           },
           "response": []
         }
@@ -353,7 +427,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "admin", "users"]
             },
-            "description": "Only Admin role can create users. Change role_slug to agent, underwriter, admin, or any active role slug in DB."
+            "description": "Only Admin role can create users. role_slug: agent | underwriter | admin. Response data.user includes phone (null), has_profile_image (false), role."
           },
           "response": []
         }
@@ -361,7 +435,7 @@
     },
     {
       "name": "Agent proposals",
-      "description": "Requires Bearer token for role **agent**. Multipart create uses application_documents[], applicant_documents[] (types: photo, signature, nid, birth_certificate, driving_license, passport, ssc_certificate), optional nominees[] and guardian_documents[]. See docs/PROPOSAL_CREATE_API_DOCUMENT_SECTIONS.txt.",
+      "description": "Requires Bearer token for role **agent**. Multipart create (form-data only, not JSON): application_documents[], applicant_documents[], optional nominees[], optional guardian_documents[] (Legal Guardian: photo max 1 as image + at least one age-proof type: birth_certificate, nid, driving_license, passport, ssc_certificate, tika_card). See docs/PROPOSAL_CREATE_API_DOCUMENT_SECTIONS.txt.",
       "item": [
         {
           "name": "Create Proposal (minimal)",
@@ -720,15 +794,143 @@
                 {
                   "key": "guardian_documents[0][document_type]",
                   "type": "text",
+                  "value": "photo"
+                },
+                {
+                  "key": "guardian_documents[0][file]",
+                  "type": "file",
+                  "src": [],
+                  "description": "Legal guardian photo (JPEG/PNG/WebP only, max 1)"
+                },
+                {
+                  "key": "guardian_documents[1][document_type]",
+                  "type": "text",
+                  "value": "birth_certificate"
+                },
+                {
+                  "key": "guardian_documents[1][file]",
+                  "type": "file",
+                  "src": [],
+                  "description": "Age proof document (required when guardian section is used)"
+                },
+                {
+                  "key": "guardian_documents[2][document_type]",
+                  "type": "text",
                   "value": "nid"
                 },
                 {
-                  "key": "guardian_documents[0][side]",
+                  "key": "guardian_documents[2][side]",
                   "type": "text",
                   "value": "front"
                 },
                 {
+                  "key": "guardian_documents[2][file]",
+                  "type": "file",
+                  "src": [],
+                  "description": "Optional extra age proof (nid/passport/driving_license support side)"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/agent/proposals",
+              "host": ["{{base_url}}"],
+              "path": ["api", "agent", "proposals"]
+            },
+            "description": "Body MUST be form-data. Attach a real file on EVERY row with type File. Do not use Body > raw > JSON.\n\nIncludes applicant photo + signature, nominees, and Legal Guardian (photo + age proof). Guardian section requires at least one age-proof document_type; photo alone is rejected."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Proposal (legal guardian only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "  const r = pm.response.json();",
+                  "  if (r.success && r.data && r.data.proposal) {",
+                  "    pm.collectionVariables.set('proposal_id', String(r.data.proposal.id));",
+                  "    const docs = r.data.proposal.documents;",
+                  "    if (docs && docs.length) {",
+                  "      pm.collectionVariables.set('document_id', String(docs[0].id));",
+                  "    }",
+                  "  }",
+                  "} catch (e) {}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "fa_number",
+                  "type": "text",
+                  "value": "FA-GUARD-01"
+                },
+                {
+                  "key": "policy_type",
+                  "type": "text",
+                  "value": "term_life"
+                },
+                {
+                  "key": "submission_date",
+                  "type": "text",
+                  "value": "2026-05-12"
+                },
+                {
+                  "key": "application_documents[0][document_type]",
+                  "type": "text",
+                  "value": "application_form"
+                },
+                {
+                  "key": "application_documents[0][file]",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "applicant_documents[0][document_type]",
+                  "type": "text",
+                  "value": "birth_certificate"
+                },
+                {
+                  "key": "applicant_documents[0][file]",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "guardian_documents[0][document_type]",
+                  "type": "text",
+                  "value": "photo"
+                },
+                {
                   "key": "guardian_documents[0][file]",
+                  "type": "file",
+                  "src": [],
+                  "description": "Image only (no PDF)"
+                },
+                {
+                  "key": "guardian_documents[1][document_type]",
+                  "type": "text",
+                  "value": "nid"
+                },
+                {
+                  "key": "guardian_documents[1][side]",
+                  "type": "text",
+                  "value": "front"
+                },
+                {
+                  "key": "guardian_documents[1][file]",
                   "type": "file",
                   "src": []
                 }
@@ -739,7 +941,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "agent", "proposals"]
             },
-            "description": "Body MUST be form-data. Attach a real file on EVERY row with type File. Do not use Body > raw > JSON.\n\nIncludes applicant photo + signature alongside NID front/back, nominees, and guardian."
+            "description": "Minimal create with Legal Guardian section only (plus required application + applicant identity). guardian_documents: photo (max 1, image MIME) + age proof (birth_certificate, nid, driving_license, passport, ssc_certificate, tika_card). At least one age proof required if any guardian file is sent."
           },
           "response": []
         },
@@ -830,7 +1032,7 @@
     },
     {
       "name": "Underwriter proposals",
-      "description": "Requires Bearer token for user with role **underwriter**. Create user via Admin or seed; use Authentication > Login Underwriter.",
+      "description": "Requires Bearer token for role **underwriter** or **admin**. Create user via Admin or seed; use Authentication > Login Underwriter.",
       "item": [
         {
           "name": "List Proposals Table",
@@ -850,40 +1052,65 @@
                 {
                   "key": "limit",
                   "value": "50",
-                  "description": "1–100"
+                  "description": "1–100, default 50"
                 },
                 {
                   "key": "underwriter_status",
                   "value": "pending",
-                  "description": "Filter by underwriter_status (e.g. pending)",
+                  "description": "e.g. pending, approved, rejected",
                   "disabled": true
                 },
                 {
                   "key": "final_status",
                   "value": "open",
-                  "description": "Filter by final_status (e.g. open)",
+                  "description": "e.g. open, closed_approved",
+                  "disabled": true
+                },
+                {
+                  "key": "ocr_status",
+                  "value": "",
+                  "description": "Filter by ocr_status",
+                  "disabled": true
+                },
+                {
+                  "key": "policy_type",
+                  "value": "",
+                  "description": "Case-insensitive contains on policy_type",
+                  "disabled": true
+                },
+                {
+                  "key": "submission_date_from",
+                  "value": "2026-01-01",
+                  "description": "ISO date YYYY-MM-DD",
+                  "disabled": true
+                },
+                {
+                  "key": "submission_date_to",
+                  "value": "2026-12-31",
+                  "description": "ISO date YYYY-MM-DD",
                   "disabled": true
                 },
                 {
                   "key": "search",
                   "value": "FA",
-                  "description": "Case-insensitive FA number contains",
+                  "description": "Case-insensitive: FA number, agent name, or proposal id text",
                   "disabled": true
                 },
                 {
                   "key": "cursor_created_at",
                   "value": "",
-                  "description": "Must pair with cursor_id",
+                  "description": "ISO datetime; must pair with cursor_id",
                   "disabled": true
                 },
                 {
                   "key": "cursor_id",
                   "value": "",
+                  "description": "Proposal id for keyset pagination",
                   "disabled": true
                 }
               ]
             },
-            "description": "Queue rows with creator brief and document_count. Defaults in DB: underwriter_status pending, final_status open."
+            "description": "Keyset-paginated queue (items, total, has_more, next_cursor_*). Each row includes creator brief and document_count. cursor_created_at and cursor_id must be sent together."
           },
           "response": []
         },
@@ -921,7 +1148,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "underwriter", "proposals", "{{proposal_id}}", "approve"]
             },
-            "description": "Sets underwriter_status to approved and final_status to closed_approved. Idempotent if already approved."
+            "description": "POST with empty body. Sets underwriter_status to approved and final_status to closed_approved. Returns 409 if already rejected; 404 if not found."
           },
           "response": []
         },

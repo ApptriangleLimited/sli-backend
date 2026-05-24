@@ -5,6 +5,7 @@ from app.core.database import get_db
 from app.dependencies.auth_dependency import require_roles
 from app.models.user import User
 from app.schemas.user_schema import AdminCreateUserRequest, UserOut
+from app.services.profile_service import user_to_out
 from app.services.user_service import UserService
 from app.utils.response import success_response
 
@@ -16,7 +17,7 @@ def admin_dashboard(current_user: User = Depends(require_roles("admin"))):
     return success_response(
         message="Admin dashboard access granted",
         data={
-            "user": UserOut.model_validate(current_user),
+            "user": user_to_out(current_user),
             "stats": {
                 "message": "Protected Admin-only dashboard endpoint",
             },
@@ -39,6 +40,6 @@ def create_user(
     )
     return success_response(
         message="User created successfully",
-        data={"user": UserOut.model_validate(user)},
+        data={"user": user_to_out(user)},
         status_code=status.HTTP_201_CREATED,
     )

@@ -23,6 +23,8 @@ class UserOut(BaseModel):
     id: int
     name: str
     email: EmailStr
+    phone: str | None = None
+    has_profile_image: bool = False
     is_active: bool
     created_at: datetime
     updated_at: datetime

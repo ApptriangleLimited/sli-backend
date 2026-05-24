@@ -46,16 +46,21 @@ NOMINEE_DOCUMENT_TYPES: Final = frozenset(
     }
 )
 
-GUARDIAN_DOCUMENT_TYPES: Final = frozenset(
+# Legal Guardian section: Photo + Age Proof Document (identity supporting docs).
+GUARDIAN_PHOTO_TYPE: Final = "photo"
+GUARDIAN_AGE_PROOF_DOCUMENT_TYPES: Final = frozenset(
     {
-        "nid",
         "birth_certificate",
+        "nid",
         "driving_license",
         "passport",
         "ssc_certificate",
         "tika_card",
     }
 )
+GUARDIAN_DOCUMENT_TYPES: Final = GUARDIAN_AGE_PROOF_DOCUMENT_TYPES | {GUARDIAN_PHOTO_TYPE}
+
+MAX_GUARDIAN_PHOTOS: Final = 1
 
 DOCUMENT_TYPES_WITH_SIDES: Final = frozenset({"nid", "driving_license", "passport"})
 

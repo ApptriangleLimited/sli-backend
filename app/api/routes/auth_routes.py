@@ -12,6 +12,7 @@ from app.schemas.auth_schema import (
 )
 from app.schemas.user_schema import UserOut
 from app.services.auth_service import AuthService
+from app.services.profile_service import user_to_out
 from app.utils.response import success_response
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
@@ -22,7 +23,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     result = AuthService(db).register(payload)
     return success_response(
         message="User registered successfully",
-        data={"user": UserOut.model_validate(result["user"])},
+        data={"user": user_to_out(result["user"])},
         status_code=status.HTTP_201_CREATED,
     )
 
@@ -30,14 +31,14 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
 @router.post("/login")
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     result = AuthService(db).login(payload)
-    result["user"] = UserOut.model_validate(result["user"])
+    result["user"] = user_to_out(result["user"])
     return success_response(message="Login successful", data=result)
 
 
 @router.post("/refresh-token")
 def refresh_token(payload: RefreshTokenRequest, db: Session = Depends(get_db)):
     result = AuthService(db).refresh_access_token(payload.refresh_token)
-    result["user"] = UserOut.model_validate(result["user"])
+    result["user"] = user_to_out(result["user"])
     return success_response(message="Token refreshed successfully", data=result)
 
 
@@ -45,7 +46,7 @@ def refresh_token(payload: RefreshTokenRequest, db: Session = Depends(get_db)):
 def me(current_user: User = Depends(get_current_user)):
     return success_response(
         message="Current user fetched successfully",
-        data={"user": UserOut.model_validate(current_user)},
+        data={"user": user_to_out(current_user)},
     )
 
 

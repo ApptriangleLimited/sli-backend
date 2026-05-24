@@ -4,7 +4,13 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import admin_routes, agent_proposal_routes, auth_routes, underwriter_proposal_routes
+from app.api.routes import (
+    admin_routes,
+    agent_proposal_routes,
+    auth_routes,
+    profile_routes,
+    underwriter_proposal_routes,
+)
 from app.core.config import settings
 from app.core.database import SessionLocal, create_missing_tables_and_columns
 from app.seeders.default_admin import seed_default_admin
@@ -56,6 +62,7 @@ def health_check():
 
 
 app.include_router(auth_routes.router)
+app.include_router(profile_routes.router)
 app.include_router(admin_routes.router)
 app.include_router(agent_proposal_routes.router)
 app.include_router(underwriter_proposal_routes.router)

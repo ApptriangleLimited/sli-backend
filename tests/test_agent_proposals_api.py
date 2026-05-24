@@ -236,7 +236,7 @@ def test_reject_more_than_eight_application_documents(client: TestClient, agent_
     assert "application" in r.json()["message"].lower()
 
 
-def test_create_with_guardian_documents(client: TestClient, agent_token: str):
+def test_create_with_guardian_age_proof_document(client: TestClient, agent_token: str):
     data, files = _minimal_valid_payload()
     data.update(
         {
@@ -249,7 +249,56 @@ def test_create_with_guardian_documents(client: TestClient, agent_token: str):
     assert r.status_code == 201, r.text
     g_docs = [d for d in r.json()["data"]["proposal"]["documents"] if d["section_type"] == "guardian"]
     assert len(g_docs) == 1
+    assert g_docs[0]["document_type"] == "nid"
     assert g_docs[0]["side"] == "front"
+
+
+def test_create_with_guardian_photo_and_age_proof(client: TestClient, agent_token: str):
+    data, files = _minimal_valid_payload()
+    data.update(
+        {
+            "guardian_documents[0][document_type]": "photo",
+            "guardian_documents[1][document_type]": "birth_certificate",
+        }
+    )
+    files.append(("guardian_documents[0][file]", ("g-photo.png", io.BytesIO(_MINI_PNG), "image/png")))
+    files.append(
+        ("guardian_documents[1][file]", ("g-bc.png", io.BytesIO(_MINI_PNG), "image/png")),
+    )
+    r = _post_create(client, agent_token, data, files, fa_number="FA-GUARD-FULL")
+    assert r.status_code == 201, r.text
+    g_docs = [d for d in r.json()["data"]["proposal"]["documents"] if d["section_type"] == "guardian"]
+    types = {d["document_type"] for d in g_docs}
+    assert types == {"photo", "birth_certificate"}
+
+
+def test_reject_guardian_photo_only(client: TestClient, agent_token: str):
+    data, files = _minimal_valid_payload()
+    data["guardian_documents[0][document_type]"] = "photo"
+    files.append(("guardian_documents[0][file]", ("g-photo.png", io.BytesIO(_MINI_PNG), "image/png")))
+    r = _post_create(client, agent_token, data, files, fa_number="FA-GUARD-PHOTO-ONLY")
+    assert r.status_code == 400
+    assert "age proof" in r.json()["message"].lower()
+
+
+def test_reject_guardian_photo_non_image(client: TestClient, agent_token: str):
+    data, files = _minimal_valid_payload()
+    data.update(
+        {
+            "guardian_documents[0][document_type]": "photo",
+            "guardian_documents[1][document_type]": "passport",
+        }
+    )
+    files.append(
+        (
+            "guardian_documents[0][file]",
+            ("g-photo.pdf", io.BytesIO(b"%PDF-1.4 minimal"), "application/pdf"),
+        ),
+    )
+    files.append(("guardian_documents[1][file]", ("g-pass.png", io.BytesIO(_MINI_PNG), "image/png")))
+    r = _post_create(client, agent_token, data, files, fa_number="FA-GUARD-BAD-PHOTO")
+    assert r.status_code == 400
+    assert "photo" in r.json()["message"].lower()
 
 
 def test_reject_invalid_document_type(client: TestClient, agent_token: str):

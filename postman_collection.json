@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "7c9c6f6a-2ee1-4a8a-bd7f-sli-backend",
     "name": "SLI Backend API",
-    "description": "FastAPI backend API collection for SLI (v1.0.0).\n\n**Routes:** GET /health · Auth (/api/auth) · Profile (/api/profile) · Admin (/api/admin) · Agent proposals (/api/agent) · Underwriter proposals (/api/underwriter).\n\n**Auth user object** includes phone, has_profile_image, role. Use Login requests to set {{access_token}} and {{refresh_token}} collection variables.",
+    "description": "FastAPI backend API collection for SLI (v1.0.0).\n\n**Routes:** GET /health · Auth (/api/auth) · Profile (/api/profile) · Admin (/api/admin) · Agent proposals (/api/agent) · Underwriter proposals (/api/underwriter) · Notifications (/api/notifications).\n\n**Auth user object** includes phone, has_profile_image, role. Use Login requests to set {{access_token}} and {{refresh_token}} collection variables.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -28,6 +28,11 @@
     },
     {
       "key": "document_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "notification_id",
       "value": "1",
       "type": "string"
     }
@@ -1148,7 +1153,34 @@
               "host": ["{{base_url}}"],
               "path": ["api", "underwriter", "proposals", "{{proposal_id}}", "approve"]
             },
-            "description": "POST with empty body. Sets underwriter_status to approved and final_status to closed_approved. Returns 409 if already rejected; 404 if not found."
+            "description": "POST with empty body. Sets underwriter_status to approved and final_status to closed_approved, and notifies the proposal creator. Returns 409 if already rejected; 404 if not found."
+          },
+          "response": []
+        },
+        {
+          "name": "Reject Proposal",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Incomplete documentation\",\n  \"notes\": \"Missing mandatory medical report.\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/underwriter/proposals/{{proposal_id}}/reject",
+              "host": ["{{base_url}}"],
+              "path": ["api", "underwriter", "proposals", "{{proposal_id}}", "reject"]
+            },
+            "description": "Rejects the proposal, sets underwriter_status to rejected and final_status to closed_rejected, and notifies the proposal creator. Returns 409 if already approved; 404 if not found."
           },
           "response": []
         },
@@ -1176,6 +1208,148 @@
               ]
             },
             "description": "Same path shape as agent download; underwriter can access documents for any proposal in the queue."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "description": "Requires Bearer token for any authenticated user. Database-backed notification APIs with unread filtering, date filters, and keyset pagination.",
+      "item": [
+        {
+          "name": "List Notifications",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "try {",
+                  "  const r = pm.response.json();",
+                  "  const items = r?.data?.items;",
+                  "  if (Array.isArray(items) && items.length > 0) {",
+                  "    pm.collectionVariables.set('notification_id', String(items[0].id));",
+                  "  }",
+                  "} catch (e) {}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications?limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "1-100, default 20"
+                },
+                {
+                  "key": "unread",
+                  "value": "true",
+                  "description": "true = unread only, false = read only",
+                  "disabled": true
+                },
+                {
+                  "key": "type",
+                  "value": "proposal_created",
+                  "description": "e.g. proposal_created, proposal_approved, proposal_rejected",
+                  "disabled": true
+                },
+                {
+                  "key": "created_from",
+                  "value": "2026-01-01",
+                  "description": "ISO date YYYY-MM-DD",
+                  "disabled": true
+                },
+                {
+                  "key": "created_to",
+                  "value": "2026-12-31",
+                  "description": "ISO date YYYY-MM-DD",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor_created_at",
+                  "value": "",
+                  "description": "ISO datetime; must pair with cursor_id",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor_id",
+                  "value": "",
+                  "description": "Notification id; must pair with cursor_created_at",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Keyset-paginated notification list. Use after creating or approving/rejecting proposals to inspect delivered notifications."
+          },
+          "response": []
+        },
+        {
+          "name": "Unread Notification Count",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/unread-count",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "unread-count"]
+            },
+            "description": "Returns { count } for the currently authenticated user."
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Notification Read",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/{{notification_id}}/read",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "{{notification_id}}", "read"]
+            },
+            "description": "Marks a single notification as read. Set {{notification_id}} from List Notifications."
+          },
+          "response": []
+        },
+        {
+          "name": "Mark All Notifications Read",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/read-all",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "read-all"]
+            },
+            "description": "Marks all unread notifications as read for the current user."
           },
           "response": []
         }

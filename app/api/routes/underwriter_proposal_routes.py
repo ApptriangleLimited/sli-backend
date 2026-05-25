@@ -2,6 +2,7 @@ from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -17,6 +18,11 @@ from app.utils.response import success_response
 router = APIRouter(prefix="/api/underwriter", tags=["Underwriter proposals"])
 
 _UNDERWRITER_OR_ADMIN = Depends(require_roles("underwriter", "admin"))
+
+
+class ProposalRejectInput(BaseModel):
+    reason: str | None = Field(default=None, max_length=200)
+    notes: str | None = Field(default=None, max_length=2000)
 
 
 @router.get("/proposals")
@@ -93,11 +99,11 @@ def get_proposal_detail(
 def approve_proposal(
     proposal_id: int,
     db: Session = Depends(get_db),
-    _uw: User = _UNDERWRITER_OR_ADMIN,
+    current_user: User = _UNDERWRITER_OR_ADMIN,
 ):
     service = UnderwriterProposalService(db)
     try:
-        detail = service.approve(proposal_id)
+        detail = service.approve(proposal_id, actor_user_id=current_user.id)
     except ProposalNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found") from exc
     except ProposalDecisionConflictError as exc:
@@ -105,6 +111,32 @@ def approve_proposal(
 
     return success_response(
         message="Proposal approved",
+        data={"proposal": detail.model_dump()},
+    )
+
+
+@router.post("/proposals/{proposal_id}/reject")
+def reject_proposal(
+    proposal_id: int,
+    payload: ProposalRejectInput,
+    db: Session = Depends(get_db),
+    current_user: User = _UNDERWRITER_OR_ADMIN,
+):
+    service = UnderwriterProposalService(db)
+    try:
+        detail = service.reject(
+            proposal_id,
+            actor_user_id=current_user.id,
+            reason=payload.reason,
+            notes=payload.notes,
+        )
+    except ProposalNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found") from exc
+    except ProposalDecisionConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from exc
+
+    return success_response(
+        message="Proposal rejected",
         data={"proposal": detail.model_dump()},
     )
 

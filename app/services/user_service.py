@@ -19,6 +19,9 @@ class UserService:
     def get_by_email(self, email: str) -> User | None:
         return self.repository.get_by_email(email)
 
+    def list_active_by_role_slug(self, role_slug: str) -> list[User]:
+        return self.repository.list_active_by_role_slug(role_slug.lower().strip())
+
     def create_user(self, name: str, email: str, password: str, role_slug: str) -> User:
         role_slug = role_slug.lower().strip()
 

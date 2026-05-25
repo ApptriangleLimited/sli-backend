@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.refresh_token import RefreshToken
+from app.models.role import Role
 from app.models.user import User
 
 
@@ -58,3 +59,13 @@ class UserRepository:
         if refresh_token:
             refresh_token.is_revoked = True
             self.db.flush()
+
+    def list_active_by_role_slug(self, role_slug: str) -> list[User]:
+        return (
+            self.db.query(User)
+            .join(Role, User.role_id == Role.id)
+            .options(joinedload(User.role))
+            .filter(User.is_active.is_(True), Role.slug == role_slug, Role.is_active.is_(True))
+            .order_by(User.name.asc(), User.id.asc())
+            .all()
+        )

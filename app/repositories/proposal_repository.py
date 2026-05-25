@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.constants.proposal_status import (
     FINAL_CLOSED_APPROVED,
+    FINAL_CLOSED_REJECTED,
     UNDERWRITER_APPROVED,
     UNDERWRITER_REJECTED,
 )
@@ -189,6 +190,12 @@ class ProposalRepository:
     def apply_underwriter_approval(self, proposal: Proposal) -> Proposal:
         proposal.underwriter_status = UNDERWRITER_APPROVED
         proposal.final_status = FINAL_CLOSED_APPROVED
+        self._db.flush()
+        return proposal
+
+    def apply_underwriter_rejection(self, proposal: Proposal) -> Proposal:
+        proposal.underwriter_status = UNDERWRITER_REJECTED
+        proposal.final_status = FINAL_CLOSED_REJECTED
         self._db.flush()
         return proposal
 

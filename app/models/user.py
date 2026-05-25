@@ -32,3 +32,14 @@ class User(Base):
     role = relationship("Role", back_populates="users")
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
     proposals_created = relationship("Proposal", back_populates="creator")
+    notifications_received = relationship(
+        "Notification",
+        foreign_keys="Notification.user_id",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    notifications_triggered = relationship(
+        "Notification",
+        foreign_keys="Notification.actor_user_id",
+        back_populates="actor",
+    )

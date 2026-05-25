@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 
 from app.constants.proposal_status import UNDERWRITER_APPROVED
 from app.exceptions.proposal_errors import ProposalDecisionConflictError, ProposalNotFoundError
+from app.modules.notifications.events import ProposalApprovedEvent, ProposalRejectedEvent
+from app.modules.notifications.listeners import build_notification_dispatcher
 from app.repositories.proposal_repository import ProposalRepository
 from app.schemas.proposal_schema import (
     ProposalCreatorBriefOut,
@@ -107,7 +109,7 @@ class UnderwriterProposalService:
             documents=[ProposalDocumentOut.model_validate(d) for d in proposal.documents],
         )
 
-    def approve(self, proposal_id: int) -> ProposalUnderwriterDetailOut:
+    def approve(self, proposal_id: int, *, actor_user_id: int) -> ProposalUnderwriterDetailOut:
         proposal = self._repo.get_by_id_with_creator_and_documents(proposal_id)
         if not proposal:
             raise ProposalNotFoundError()
@@ -119,10 +121,55 @@ class UnderwriterProposalService:
             raise ProposalDecisionConflictError("Cannot approve a rejected proposal")
 
         self._repo.apply_underwriter_approval(proposal)
+        build_notification_dispatcher(self._db).dispatch(
+            ProposalApprovedEvent(
+                proposal_id=proposal.id,
+                proposal_fa_number=proposal.fa_number,
+                creator_id=proposal.created_by_id,
+                actor_user_id=actor_user_id,
+            )
+        )
         self._db.commit()
         self._db.refresh(proposal)
 
         refreshed = self._repo.get_by_id_with_creator_and_documents(proposal_id)
         if not refreshed or refreshed.underwriter_status != UNDERWRITER_APPROVED:
             raise RuntimeError("Proposal approval did not persist")
+        return self._to_detail_out(refreshed)
+
+    def reject(
+        self,
+        proposal_id: int,
+        *,
+        actor_user_id: int,
+        reason: str | None = None,
+        notes: str | None = None,
+    ) -> ProposalUnderwriterDetailOut:
+        proposal = self._repo.get_by_id_with_creator_and_documents(proposal_id)
+        if not proposal:
+            raise ProposalNotFoundError()
+
+        if self._repo.is_underwriter_rejected(proposal):
+            return self._to_detail_out(proposal)
+
+        if self._repo.is_underwriter_approved(proposal):
+            raise ProposalDecisionConflictError("Cannot reject an approved proposal")
+
+        self._repo.apply_underwriter_rejection(proposal)
+        build_notification_dispatcher(self._db).dispatch(
+            ProposalRejectedEvent(
+                proposal_id=proposal.id,
+                proposal_fa_number=proposal.fa_number,
+                creator_id=proposal.created_by_id,
+                actor_user_id=actor_user_id,
+                reason=reason,
+                notes=notes,
+            )
+        )
+        self._db.commit()
+        self._db.refresh(proposal)
+
+        refreshed = self._repo.get_by_id_with_creator_and_documents(proposal_id)
+        if not refreshed:
+            raise RuntimeError("Proposal rejection did not persist")
         return self._to_detail_out(refreshed)

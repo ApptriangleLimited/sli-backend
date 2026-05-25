@@ -8,6 +8,7 @@ from app.api.routes import (
     admin_routes,
     agent_proposal_routes,
     auth_routes,
+    notification_routes,
     profile_routes,
     underwriter_proposal_routes,
 )
@@ -66,3 +67,4 @@ app.include_router(profile_routes.router)
 app.include_router(admin_routes.router)
 app.include_router(agent_proposal_routes.router)
 app.include_router(underwriter_proposal_routes.router)
+app.include_router(notification_routes.router)

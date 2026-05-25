@@ -3,6 +3,8 @@ from datetime import date, datetime
 from sqlalchemy.orm import Session
 
 from app.models.proposal import Proposal, ProposalDocument
+from app.modules.notifications.events import ProposalCreatedEvent
+from app.modules.notifications.listeners import build_notification_dispatcher
 from app.repositories.proposal_repository import ProposalRepository
 from app.schemas.proposal_document_upload import ProposalDocumentUploadBundle, ProposalDocumentUploadItem
 from app.services.proposal_storage_service import ProposalStorageService
@@ -71,6 +73,13 @@ class ProposalService:
                     ocr_extracted_data=per_doc_ocr,
                 )
                 self._repo.add_document(doc)
+            build_notification_dispatcher(self._db).dispatch(
+                ProposalCreatedEvent(
+                    proposal_id=proposal.id,
+                    proposal_fa_number=proposal.fa_number,
+                    creator_id=creator_id,
+                )
+            )
             self._db.commit()
         except Exception:
             self._db.rollback()

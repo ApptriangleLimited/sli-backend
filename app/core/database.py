@@ -51,7 +51,7 @@ def _create_all_idempotent() -> None:
 
 def create_missing_tables_and_columns() -> None:
     """Safe dev sync: create missing tables and add simple missing columns only."""
-    from app.models import proposal, refresh_token, role, user  # noqa: F401
+    from app.models import notification, proposal, refresh_token, role, user  # noqa: F401
 
     _create_all_idempotent()
 
